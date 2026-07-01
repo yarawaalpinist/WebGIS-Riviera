@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Geoportal · WebGIS</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<!-- Tipografia -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- ===== HUD inferior (leitura de coordenadas / escala) ===== -->
+<div id="hud" class="glass-panel">
+  <div class="hud-item">
+    <span class="hud-label">LAT</span>
+    <span class="hud-value" id="hud-lat">—</span>
+  </div>
+  <div class="hud-divider"></div>
+  <div class="hud-item">
+    <span class="hud-label">LON</span>
+    <span class="hud-value" id="hud-lon">—</span>
+  </div>
+  <div class="hud-divider"></div>
+  <div class="hud-item">
+    <span class="hud-label">ZOOM</span>
+    <span class="hud-value" id="hud-zoom">—</span>
+  </div>
+  <div class="hud-divider"></div>
+  <div class="hud-item" id="hud-scale-wrap">
+    <span class="hud-label">ESCALA</span>
+    <span class="hud-value" id="hud-scale">—</span>
+  </div>
+</div>
+
+<!-- ===== Toolbar flutuante (canto superior direito) ===== -->
+<div id="toolbar" class="glass-panel">
+  <button class="tool-btn" id="btn-zoom-in" title="Aumentar zoom" aria-label="Aumentar zoom">+</button>
+  <button class="tool-btn" id="btn-zoom-out" title="Diminuir zoom" aria-label="Diminuir zoom">−</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" id="btn-locate" title="Minha localização" aria-label="Minha localização">◎</button>
+  <button class="tool-btn" id="btn-reset" title="Vista inicial" aria-label="Vista inicial">⤢</button>
+</div>
+
+<!-- ===== Botão para reabrir o menu quando colapsado ===== -->
+<button id="sidebar-reopen" class="glass-panel" aria-label="Abrir menu">
+  <span class="reopen-icon">☰</span>
+</button>
+
+<!-- ===== Sidebar / Menu lateral flutuante ===== -->
+<aside id="sidebar" class="glass-panel">
+
+  <header class="sidebar-header">
+    <div class="brand">
+      <span class="brand-mark">◈</span>
+      <div class="brand-text">
+        <h1>Geoportal</h1>
+        <span class="brand-sub">Painel de Controle Geoespacial</span>
+      </div>
+    </div>
+    <button id="sidebar-collapse" aria-label="Recolher menu" title="Recolher menu">‹</button>
+  </header>
+
+  <div class="sidebar-body">
+
+    <!-- Mapas de fundo -->
+    <section class="panel-section">
+      <h2 class="section-title"><span class="section-index">01</span> Mapa Base</h2>
+      <div class="basemap-grid">
+        <button class="basemap-btn active" data-base="osm">
+          <span class="basemap-swatch swatch-osm"></span>
+          <span>OpenStreetMap</span>
+        </button>
+        <button class="basemap-btn" data-base="satellite">
+          <span class="basemap-swatch swatch-sat"></span>
+          <span>Satélite</span>
+        </button>
+        <button class="basemap-btn" data-base="topo">
+          <span class="basemap-swatch swatch-topo"></span>
+          <span>Relevo / Topo</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Camadas -->
+    <section class="panel-section">
+      <h2 class="section-title"><span class="section-index">02</span> Camadas</h2>
+      <div id="layers-tree" class="layers-tree">
+        <p class="layers-empty">Nenhuma camada carregada ainda. Envie um arquivo GeoJSON abaixo.</p>
+      </div>
+    </section>
+
+    <!-- Upload -->
+    <section class="panel-section">
+      <h2 class="section-title"><span class="section-index">03</span> Adicionar Dados</h2>
+
+      <label id="dropzone" for="file-input">
+        <span class="dropzone-icon">⇪</span>
+        <span class="dropzone-text">Arraste um arquivo <strong>.geojson</strong> aqui<br>ou clique para selecionar</span>
+      </label>
+      <input type="file" id="file-input" accept=".geojson,.json,application/geo+json,application/json" multiple hidden />
+
+      <button id="btn-open-folder" class="secondary-btn">
+        Abrir pasta local (.geojson)
+      </button>
+      <p class="hint-text" id="folder-hint">Seleciona uma pasta e carrega todos os arquivos .geojson dela de uma vez. Requer Chrome ou Edge.</p>
+    </section>
+
+  </div>
+
+  <footer class="sidebar-footer">
+    <span id="layer-count">0 camadas ativas</span>
+  </footer>
+
+</aside>
+
+<!-- ===== Legenda Flutuante (canto inferior direito) ===== -->
+<div id="legend-panel" class="glass-panel">
+  <header class="legend-header">
+    <span class="legend-title">Legenda</span>
+    <button id="btn-legend-toggle" title="Minimizar legenda" aria-label="Minimizar legenda">−</button>
+  </header>
+  <div id="legend-body" class="legend-body">
+    <!-- Conteúdo gerado dinamicamente -->
+  </div>
+</div>
+
+<!-- Leaflet -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
