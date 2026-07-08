@@ -645,12 +645,12 @@
     // ── LIMITES ──────────────────────────────────────────────────
     {
       file: 'Limites_riviera.geojson', name: 'Limites da Riviera',
-      category: 'limites', active: true,
+      category: 'limites', active: false,
       style: { color: '#22D3EE', weight: 2.5, fillOpacity: 0.05 },
     },
     {
       file: 'Modulos_riviera.geojson', name: 'Módulos da Riviera',
-      category: 'limites', active: true,
+      category: 'limites', active: false,
       style: {
         color: '#F2B84B', weight: 2, fillOpacity: 0.06,
         labelField: 'Divisão',
@@ -680,12 +680,12 @@
     // ── MOBILIDADE ───────────────────────────────────────────────
     {
       file: 'Ruas.geojson', name: 'Ruas',
-      category: 'mobilidade', active: true,
+      category: 'mobilidade', active: false,
       style: { color: '#94A3B8', weight: 1.5 },
     },
     {
       file: 'Ciclovias.geojson', name: 'Ciclovias',
-      category: 'mobilidade', active: true,
+      category: 'mobilidade', active: false,
       style: { color: '#A78BFA', weight: 2.5 },   // roxo/violeta
     },
     {
