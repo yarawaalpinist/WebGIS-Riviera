@@ -723,3 +723,79 @@ button:focus-visible, [tabindex]:focus-visible, input:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* =========================================================
+   Global Dynamic Legend & Mix Blend
+   ========================================================= */
+.remover-fundo-branco {
+  mix-blend-mode: multiply;
+}
+
+#global-legend {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 500;
+  width: 280px;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.legend-header {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-glass);
+  padding-bottom: 6px;
+}
+
+.legend-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.legend-content::-webkit-scrollbar { width: 4px; }
+.legend-content::-webkit-scrollbar-thumb { background: var(--border-glass); border-radius: 10px; }
+
+.global-legend-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.global-legend-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.global-legend-symbol {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.global-legend-color-box {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.global-legend-color-line {
+  width: 16px;
+  height: 3px;
+  border-radius: 1px;
+}

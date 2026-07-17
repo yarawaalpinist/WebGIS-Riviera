@@ -326,6 +326,7 @@
     const leafletLayer = L.imageOverlay.rotated(url, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, {
       opacity: 0.7,
       interactive: false,
+      className: 'remover-fundo-branco'
     });
 
     if (active) leafletLayer.addTo(map);
@@ -408,49 +409,60 @@
   /* ----------------------------------------------------------------
      12. RENDER DA ÁRVORE DE CAMADAS COM LEGENDAS EMBUTIDAS
   ---------------------------------------------------------------- */
-  function getEmbeddedLegendHtml(item) {
-    if (item.geometryType === 'raster') {
-      if (item.rasterType === 'verao' || item.rasterType === 'inverno') {
-        return `
-          <div class="layer-embedded-legend">
-            <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #ffffc7, #fed976, #feb24c, #fd8d3c, #f03b20, #bd0026, #000000);"></div>
-            <div class="layer-legend-labels">
-              <span>22 °C</span>
-              <span>33 °C</span>
-              <span>44 °C</span>
-            </div>
-          </div>`;
-      } else if (item.rasterType === 'c02eq') {
-        return `
-          <div class="layer-embedded-legend">
-            <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #d7191c, #fdae61, #ffffc0, #a6d96a, #1a9641);"></div>
-            <div class="layer-legend-labels">
-              <span>-82,8368149 tCO²eq</span>
-              <span>196,4725037 tCO²eq</span>
-            </div>
-          </div>`;
-      }
-    } else if (item.classifyBy && item.classifyFn) {
-      const classMap = item.classifyBy === 'Risco' ? RISCO_COLORS
-                    : item.classifyBy === 'Situacao' ? SITUACAO_COLORS
-                    : {};
-      let itemsHtml = '';
-      Object.entries(classMap).forEach(([cls, col]) => {
-        if (cls === 'default') return;
-        itemsHtml += `
-          <div class="layer-legend-list-item">
-            <span class="layer-legend-dot" style="background:${col};box-shadow:0 0 4px ${col}aa"></span>
-            <span>${cls}</span>
-          </div>`;
-      });
-      return `
-        <div class="layer-embedded-legend">
-          <div class="layer-legend-list">
-            ${itemsHtml}
+  function updateGlobalLegend() {
+    const legendEl = document.getElementById('global-legend');
+    const contentEl = document.getElementById('legend-content');
+    if (!legendEl || !contentEl) return;
+
+    let html = '';
+    let hasActive = false;
+
+    Object.keys(layerStore).forEach(categoryKey => {
+      layerStore[categoryKey].forEach(item => {
+        if (!item.visible) return;
+        hasActive = true;
+        
+        let legendItemHtml = '';
+
+        if (item.geometryType === 'raster') {
+          if (item.rasterType === 'verao' || item.rasterType === 'inverno') {
+            legendItemHtml = `
+              <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #ffffc7, #fed976, #feb24c, #fd8d3c, #f03b20, #bd0026, #000000);"></div>
+              <div class="layer-legend-labels"><span>22 °C</span><span>33 °C</span><span>44 °C</span></div>`;
+          } else if (item.rasterType === 'c02eq') {
+            legendItemHtml = `
+              <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #d7191c, #fdae61, #ffffc0, #a6d96a, #1a9641);"></div>
+              <div class="layer-legend-labels"><span>-82,8368149 tCO²eq</span><span>196,4725037 tCO²eq</span></div>`;
+          }
+        } else if (item.classifyBy && item.classifyFn) {
+          const classMap = item.classifyBy === 'Risco' ? RISCO_COLORS : item.classifyBy === 'Situacao' ? SITUACAO_COLORS : {};
+          let itemsHtml = '';
+          Object.entries(classMap).forEach(([cls, col]) => {
+            if (cls === 'default') return;
+            itemsHtml += `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${col}"></span><span>${cls}</span></div>`;
+          });
+          legendItemHtml = `<div class="layer-legend-list">${itemsHtml}</div>`;
+        } else {
+          if (item.geometryType === 'polygon') {
+            legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${item.color}33; border-color:${item.color}"></span><span>Polígono</span></div>`;
+          } else if (item.geometryType === 'line') {
+            legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-line" style="background:${item.color}"></span><span>Linha</span></div>`;
+          } else {
+            legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${item.color}; border-radius:50%"></span><span>Ponto</span></div>`;
+          }
+        }
+
+        html += `
+          <div class="global-legend-item">
+            <span class="global-legend-title">${item.name}</span>
+            ${legendItemHtml}
           </div>
-        </div>`;
-    }
-    return '';
+        `;
+      });
+    });
+
+    contentEl.innerHTML = html;
+    legendEl.style.display = hasActive ? 'flex' : 'none';
   }
 
   function renderLayersTree() {
@@ -460,7 +472,6 @@
 
     layersTreeEl.innerHTML = '';
 
-    // 1. Renderizar Camada Independente (no topo, fora de todas as abas)
     if (layerStore.independent.length > 0) {
       layerStore.independent.forEach(item => {
         const card = document.createElement('div');
@@ -470,8 +481,6 @@
         card.style.background = 'rgba(255, 255, 255, 0.03)';
         card.style.marginBottom = '14px';
         card.style.padding = '10px 12px';
-
-        const legendHtml = getEmbeddedLegendHtml(item);
 
         card.innerHTML = `
           <div class="layer-item-main">
@@ -485,9 +494,6 @@
           <div class="layer-item-opacity">
             <span class="layer-opacity-label">Opacidade: ${Math.round(item.opacity * 100)}%</span>
             <input type="range" class="layer-opacity-slider" min="0" max="100" value="${Math.round(item.opacity * 100)}" />
-          </div>
-          <div class="layer-legend-container" style="display: ${item.visible ? 'block' : 'none'};">
-            ${legendHtml}
           </div>`;
 
         card.querySelector('.layer-checkbox').addEventListener('change', e => {
@@ -509,7 +515,6 @@
       });
     }
 
-    // 2. Renderizar Grupos de Camadas
     Object.values(GROUP_DEFS).forEach(({ label, key }) => {
       const items = layerStore[key];
       if (!items.length) return;
@@ -533,8 +538,6 @@
         const row = document.createElement('div');
         row.className = 'layer-item';
 
-        const legendHtml = getEmbeddedLegendHtml(item);
-
         row.innerHTML = `
           <div class="layer-item-main">
             <input type="checkbox" class="layer-checkbox" ${item.visible ? 'checked' : ''} />
@@ -548,9 +551,6 @@
           <div class="layer-item-opacity">
             <span class="layer-opacity-label">Opacidade: ${Math.round(item.opacity * 100)}%</span>
             <input type="range" class="layer-opacity-slider" min="0" max="100" value="${Math.round(item.opacity * 100)}" />
-          </div>
-          <div class="layer-legend-container" style="display: ${item.visible ? 'block' : 'none'};">
-            ${legendHtml}
           </div>`;
 
         row.querySelector('.layer-checkbox').addEventListener('change', e => {
@@ -580,6 +580,8 @@
       groupEl.appendChild(wrap);
       layersTreeEl.appendChild(groupEl);
     });
+
+    updateGlobalLegend();
   }
 
   /* ----------------------------------------------------------------
@@ -694,7 +696,7 @@
     // ── HIDROGRAFIA ──────────────────────────────────────────────
     {
       file: 'Bacias_de_contribuicao.geojson', name: 'Bacias de Contribuição',
-      category: 'hidrografia', active: true,
+      category: 'hidrografia', active: false,
       style: { color: '#F43F5E', weight: 4.0, fillOpacity: 0.1 },
     },
     {
