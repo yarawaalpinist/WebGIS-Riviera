@@ -649,15 +649,35 @@
   }
 
   async function handleFiles(fileList) {
-    const files = Array.from(fileList).filter(f => /\.(geojson|json)$/i.test(f.name));
+    const files = Array.from(fileList).filter(f => /\.(geojson|json|kml|kmz)$/i.test(f.name));
     for (const file of files) {
       try {
-        const data = await readFileAsGeoJson(file);
+        let data = null;
+        const lowerName = file.name.toLowerCase();
+
+        if (lowerName.endsWith('.kml')) {
+          const text = await file.text();
+          const dom = new DOMParser().parseFromString(text, 'text/xml');
+          data = toGeoJSON.kml(dom);
+        } else if (lowerName.endsWith('.kmz')) {
+          const buffer = await file.arrayBuffer();
+          const zip = await JSZip.loadAsync(buffer);
+          const kmlFile = Object.keys(zip.files).find(name => name.toLowerCase().endsWith('.kml'));
+          if (!kmlFile) throw new Error(`Nenhum arquivo KML encontrado dentro de "${file.name}".`);
+          const text = await zip.files[kmlFile].async('text');
+          const dom = new DOMParser().parseFromString(text, 'text/xml');
+          data = toGeoJSON.kml(dom);
+        } else {
+          data = await readFileAsGeoJson(file);
+        }
+
+        if (!data) continue;
+
         if (!isGeoJSONInWGS84(data)) {
           alert(`"${file.name}" não está em WGS-84 (EPSG:4326).\nReprojete os dados antes de importar.`);
           continue;
         }
-        const layerName = file.name.replace(/\.(geojson|json)$/i, '');
+        const layerName = file.name.replace(/\.(geojson|json|kml|kmz)$/i, '');
         const lyr = addGeoJsonToMap(layerName, data, 'importadas', true);
         if (lyr) {
           try {
@@ -665,7 +685,7 @@
             if (b && b.isValid()) map.fitBounds(b, { padding: [40,40] });
           } catch (_) {}
         }
-      } catch (err) { alert(err.message); }
+      } catch (err) { alert(`Erro em "${file.name}": ` + err.message); }
     }
   }
 

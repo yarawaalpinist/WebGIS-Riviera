@@ -129,14 +129,14 @@
 
       <label id="dropzone" for="file-input">
         <span class="dropzone-icon">⇪</span>
-        <span class="dropzone-text">Arraste um arquivo <strong>.geojson</strong> aqui<br>ou clique para selecionar</span>
+        <span class="dropzone-text">Arraste arquivos <strong>.geojson, .kml ou .kmz</strong> aqui<br>ou clique para selecionar</span>
       </label>
-      <input type="file" id="file-input" accept=".geojson,.json,application/geo+json,application/json" multiple hidden />
+      <input type="file" id="file-input" accept=".geojson,.json,.kml,.kmz" multiple hidden />
 
       <button id="btn-open-folder" class="secondary-btn">
-        Abrir pasta local (.geojson)
+        Abrir pasta local
       </button>
-      <p class="hint-text" id="folder-hint">Seleciona uma pasta e carrega todos os arquivos .geojson. Requer Chrome ou Edge.</p>
+      <p class="hint-text" id="folder-hint">Seleciona uma pasta e carrega os arquivos suportados. Requer Chrome ou Edge.</p>
     </section>
 
   </div>
@@ -161,6 +161,9 @@
 <script src="https://cdn.jsdelivr.net/npm/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
 <!-- leaflet-imageoverlay-rotated JS -->
 <script src="https://unpkg.com/leaflet-imageoverlay-rotated@latest/Leaflet.ImageOverlay.Rotated.js"></script>
+<!-- KML/KMZ support -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://unpkg.com/@mapbox/togeojson@0.16.0/togeojson.js"></script>
 <!-- App JS -->
 <script src="script.js"></script>
 </body>
