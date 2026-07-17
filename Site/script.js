@@ -61,7 +61,6 @@
   const hudBearing  = document.getElementById('hud-bearing');
 
   function updateCompass(bearing) {
-    // Gira o SVG da bússola na direção oposta ao bearing do mapa
     if (compassSvg) compassSvg.style.transform = `rotate(${-bearing}deg)`;
     if (hudBearing) hudBearing.textContent = `${bearing.toFixed(1)}°`;
   }
@@ -134,10 +133,17 @@
   updateScale();
 
   /* ----------------------------------------------------------------
-     7. PALETAS E CATEGORIAS DE CAMADAS
+     7. COORDENADAS DE ANCORAGEM DOS RASTERS
+  ---------------------------------------------------------------- */
+  const TOP_LEFT     = L.latLng(-23.78716449, -46.05344352);
+  const TOP_RIGHT    = L.latLng(-23.77594424, -46.00658393);
+  const BOTTOM_LEFT  = L.latLng(-23.82150834, -46.04373685);
+
+  /* ----------------------------------------------------------------
+     8. PALETAS E CATEGORIAS DE CAMADAS
   ---------------------------------------------------------------- */
   const GROUP_DEFS = {
-    raster:        { label: '🌡 Análises Raster',       key: 'raster' },
+    raster:        { label: '🌡 Análises Matriciais',    key: 'raster' },
     limites:       { label: '⬡ Limites Administrativos', key: 'limites' },
     hidrografia:   { label: '💧 Hidrografia',            key: 'hidrografia' },
     mobilidade:    { label: '🚲 Mobilidade',              key: 'mobilidade' },
@@ -152,6 +158,7 @@
   ];
 
   const layerStore = {
+    independent: [], // Para "Pontos de Interesse"
     raster: [], limites: [], hidrografia: [], mobilidade: [],
     infraestrutura: [], vegetacao: [], importadas: [],
   };
@@ -177,19 +184,27 @@
     return 'point';
   }
 
-  function setLayerOpacity(leafletLayer, val) {
-    leafletLayer.eachLayer(layer => {
+  function setLayerOpacity(item, val) {
+    item.opacity = val;
+    const layer = item.leafletLayer;
+    if (item.geometryType === 'raster') {
       if (typeof layer.setOpacity === 'function') {
         layer.setOpacity(val);
-      } else if (typeof layer.setStyle === 'function') {
-        const isPoly = layer instanceof L.Polygon;
-        layer.setStyle({ opacity: val, fillOpacity: isPoly ? val * 0.35 : val * 0.18 });
       }
-    });
+    } else {
+      layer.eachLayer(l => {
+        if (typeof l.setOpacity === 'function') {
+          l.setOpacity(val);
+        } else if (typeof l.setStyle === 'function') {
+          const isPoly = l instanceof L.Polygon;
+          l.setStyle({ opacity: val, fillOpacity: isPoly ? val * 0.35 : val * 0.18 });
+        }
+      });
+    }
   }
 
   /* ----------------------------------------------------------------
-     8. CONSTRUTORES DE ESTILOS ESPECIALIZADOS
+     9. CONSTRUTORES DE ESTILOS ESPECIALIZADOS
   ---------------------------------------------------------------- */
 
   // Classificação "Risco" do Inventário de Árvores
@@ -216,7 +231,7 @@
   }
 
   /* ----------------------------------------------------------------
-     9. POPUP BUILDER
+     10. POPUP BUILDER
   ---------------------------------------------------------------- */
   function buildPopup(name, feature) {
     if (!feature.properties) return null;
@@ -236,9 +251,11 @@
   }
 
   /* ----------------------------------------------------------------
-     10. ADICIONAR GeoJSON AO MAPA
+     11. ADICIONAR CAMADAS AO MAPA
   ---------------------------------------------------------------- */
-  function addGeoJsonToMap(name, geojson, categoryKey = 'importadas', active = true, customStyle = null) {
+
+  // Adiciona GeoJSON
+  function addGeoJsonToMap(name, geojson, categoryKey = 'importadas', active = false, customStyle = null) {
     const groupKey = dominantGeometryType(geojson);
     const defColor = customStyle ? customStyle.color || nextColor() : nextColor();
     const id = `layer-${layerIdCounter++}`;
@@ -274,35 +291,21 @@
       onEachFeature: (feature, layer) => {
         const html = buildPopup(name, feature);
         if (html) layer.bindPopup(html, { maxWidth: 320, maxHeight: 300 });
+
+        if (customStyle && customStyle.labelField) {
+          const val = feature.properties && feature.properties[customStyle.labelField];
+          if (val) {
+            layer.bindTooltip(val, {
+              permanent: true,
+              direction: 'center',
+              className: 'modulo-label-inner-tooltip'
+            });
+          }
+        }
       },
     });
 
     if (active) leafletLayer.addTo(map);
-
-    // Para Módulos: adicionar labels fixas (tooltips permanentes)
-    if (customStyle && customStyle.labelField) {
-      leafletLayer.eachLayer(layer => {
-        const val = layer.feature && layer.feature.properties && layer.feature.properties[customStyle.labelField];
-        if (val && layer.getCenter) {
-          const center = layer.getCenter();
-          L.marker(center, {
-            icon: L.divIcon({
-              className: 'modulo-label',
-              html: `<span class="modulo-label-inner">${val}</span>`,
-              iconSize: null,
-            }),
-            interactive: false,
-          }).addTo(map);
-        }
-      });
-    }
-
-    try {
-      const bounds = leafletLayer.getBounds();
-      if (bounds && bounds.isValid()) {
-        // Não faz fit automático nas camadas iniciais (só nas importadas pelo usuário)
-      }
-    } catch (_) {}
 
     layerStore[categoryKey].push({
       id, name, color: defColor, leafletLayer,
@@ -313,8 +316,69 @@
     });
 
     renderLayersTree();
-    updateLegend();
     return leafletLayer;
+  }
+
+  // Adiciona camada Raster (Rotated ImageOverlay)
+  function addRasterOverlay(name, url, categoryKey = 'raster', active = false, rasterType = '') {
+    const id = `layer-${layerIdCounter++}`;
+
+    const leafletLayer = L.imageOverlay.rotated(url, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, {
+      opacity: 0.7,
+      interactive: false,
+    });
+
+    if (active) leafletLayer.addTo(map);
+
+    layerStore[categoryKey].push({
+      id, name, color: '#22D3EE', leafletLayer,
+      visible: active, opacity: 0.7, geometryType: 'raster',
+      rasterType,
+    });
+
+    renderLayersTree();
+  }
+
+  // Adiciona a camada independente de Pontos de Interesse
+  function addPoiLayer(geojson) {
+    const id = 'layer-poi';
+    const name = 'Pontos de Interesse';
+    const color = '#A78BFA';
+
+    const leafletLayer = L.geoJSON(geojson, {
+      pointToLayer: (feature, latlng) => {
+        return L.circleMarker(latlng, {
+          radius: 6,
+          color: color,
+          weight: 2,
+          fillColor: color,
+          fillOpacity: 0.8,
+        });
+      },
+      onEachFeature: (feature, layer) => {
+        const html = buildPopup(name, feature);
+        if (html) layer.bindPopup(html, { maxWidth: 320, maxHeight: 300 });
+
+        const labelVal = feature.properties && (feature.properties.Name || feature.properties.NAME);
+        if (labelVal) {
+          layer.bindTooltip(labelVal, {
+            permanent: true,
+            direction: 'top',
+            className: 'poi-label-tooltip',
+            offset: L.point(0, -8),
+          });
+        }
+      },
+    });
+
+    // Inicia desligada por padrão
+    layerStore.independent.push({
+      id, name, color, leafletLayer,
+      visible: false, opacity: 1.0, geometryType: 'point',
+      isIndependent: true,
+    });
+
+    renderLayersTree();
   }
 
   function removeLayerById(categoryKey, id) {
@@ -323,36 +387,129 @@
     map.removeLayer(layerStore[categoryKey][idx].leafletLayer);
     layerStore[categoryKey].splice(idx, 1);
     renderLayersTree();
-    updateLegend();
   }
 
   function toggleLayerVisibility(categoryKey, id, visible) {
-    const item = layerStore[categoryKey].find(l => l.id === id);
+    const item = (categoryKey === 'independent')
+      ? layerStore.independent.find(l => l.id === id)
+      : layerStore[categoryKey].find(l => l.id === id);
+
     if (!item) return;
     item.visible = visible;
     if (visible) {
       item.leafletLayer.addTo(map);
-      setLayerOpacity(item.leafletLayer, item.opacity);
+      setLayerOpacity(item, item.opacity);
     } else {
       map.removeLayer(item.leafletLayer);
     }
-    updateLegend();
+    renderLayersTree();
   }
 
   /* ----------------------------------------------------------------
-     11. RENDER DA ÁRVORE DE CAMADAS
+     12. RENDER DA ÁRVORE DE CAMADAS COM LEGENDAS EMBUTIDAS
   ---------------------------------------------------------------- */
+  function getEmbeddedLegendHtml(item) {
+    if (item.geometryType === 'raster') {
+      if (item.rasterType === 'verao' || item.rasterType === 'inverno') {
+        return `
+          <div class="layer-embedded-legend">
+            <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #ffffc7, #fed976, #feb24c, #fd8d3c, #f03b20, #bd0026, #000000);"></div>
+            <div class="layer-legend-labels">
+              <span>22 °C</span>
+              <span>33 °C</span>
+              <span>44 °C</span>
+            </div>
+          </div>`;
+      } else if (item.rasterType === 'c02eq') {
+        return `
+          <div class="layer-embedded-legend">
+            <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #d7191c, #fdae61, #ffffc0, #a6d96a, #1a9641);"></div>
+            <div class="layer-legend-labels">
+              <span>-82,8368149 tCO²eq</span>
+              <span>196,4725037 tCO²eq</span>
+            </div>
+          </div>`;
+      }
+    } else if (item.classifyBy && item.classifyFn) {
+      const classMap = item.classifyBy === 'Risco' ? RISCO_COLORS
+                    : item.classifyBy === 'Situacao' ? SITUACAO_COLORS
+                    : {};
+      let itemsHtml = '';
+      Object.entries(classMap).forEach(([cls, col]) => {
+        if (cls === 'default') return;
+        itemsHtml += `
+          <div class="layer-legend-list-item">
+            <span class="layer-legend-dot" style="background:${col};box-shadow:0 0 4px ${col}aa"></span>
+            <span>${cls}</span>
+          </div>`;
+      });
+      return `
+        <div class="layer-embedded-legend">
+          <div class="layer-legend-list">
+            ${itemsHtml}
+          </div>
+        </div>`;
+    }
+    return '';
+  }
+
   function renderLayersTree() {
-    let total = 0;
+    let total = layerStore.independent.length;
     Object.values(layerStore).forEach(g => total += g.length);
     layerCountEl.textContent = `${total} camada${total !== 1 ? 's' : ''} carregada${total !== 1 ? 's' : ''}`;
 
-    if (total === 0) {
-      layersTreeEl.innerHTML = '<p class="layers-empty">Nenhuma camada carregada.</p>';
-      return;
+    layersTreeEl.innerHTML = '';
+
+    // 1. Renderizar Camada Independente (no topo, fora de todas as abas)
+    if (layerStore.independent.length > 0) {
+      layerStore.independent.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'layer-item independent-layer-card';
+        card.style.border = '1px solid rgba(255, 255, 255, 0.12)';
+        card.style.borderRadius = 'var(--radius-md)';
+        card.style.background = 'rgba(255, 255, 255, 0.03)';
+        card.style.marginBottom = '14px';
+        card.style.padding = '10px 12px';
+
+        const legendHtml = getEmbeddedLegendHtml(item);
+
+        card.innerHTML = `
+          <div class="layer-item-main">
+            <input type="checkbox" class="layer-checkbox" ${item.visible ? 'checked' : ''} />
+            <span class="layer-color-dot" style="background:${item.color};box-shadow:0 0 5px ${item.color}88"></span>
+            <span class="layer-name" style="font-weight:700;" title="${item.name}">${item.name}</span>
+            <span class="layer-actions">
+              <button class="layer-icon-btn zoom-to" title="Centralizar">⌖</button>
+            </span>
+          </div>
+          <div class="layer-item-opacity">
+            <span class="layer-opacity-label">Opacidade: ${Math.round(item.opacity * 100)}%</span>
+            <input type="range" class="layer-opacity-slider" min="0" max="100" value="${Math.round(item.opacity * 100)}" />
+          </div>
+          <div class="layer-legend-container" style="display: ${item.visible ? 'block' : 'none'};">
+            ${legendHtml}
+          </div>`;
+
+        card.querySelector('.layer-checkbox').addEventListener('change', e => {
+          toggleLayerVisibility('independent', item.id, e.target.checked);
+        });
+        card.querySelector('.layer-opacity-slider').addEventListener('input', e => {
+          const val = parseFloat(e.target.value) / 100;
+          card.querySelector('.layer-opacity-label').textContent = `Opacidade: ${e.target.value}%`;
+          setLayerOpacity(item, val);
+        });
+        card.querySelector('.zoom-to').addEventListener('click', () => {
+          try {
+            const b = item.leafletLayer.getBounds();
+            if (b && b.isValid()) map.fitBounds(b, { padding: [40, 40] });
+          } catch (_) {}
+        });
+
+        layersTreeEl.appendChild(card);
+      });
     }
 
-    layersTreeEl.innerHTML = '';
+    // 2. Renderizar Grupos de Camadas
     Object.values(GROUP_DEFS).forEach(({ label, key }) => {
       const items = layerStore[key];
       if (!items.length) return;
@@ -375,6 +532,9 @@
       items.forEach(item => {
         const row = document.createElement('div');
         row.className = 'layer-item';
+
+        const legendHtml = getEmbeddedLegendHtml(item);
+
         row.innerHTML = `
           <div class="layer-item-main">
             <input type="checkbox" class="layer-checkbox" ${item.visible ? 'checked' : ''} />
@@ -388,6 +548,9 @@
           <div class="layer-item-opacity">
             <span class="layer-opacity-label">Opacidade: ${Math.round(item.opacity * 100)}%</span>
             <input type="range" class="layer-opacity-slider" min="0" max="100" value="${Math.round(item.opacity * 100)}" />
+          </div>
+          <div class="layer-legend-container" style="display: ${item.visible ? 'block' : 'none'};">
+            ${legendHtml}
           </div>`;
 
         row.querySelector('.layer-checkbox').addEventListener('change', e => {
@@ -396,13 +559,17 @@
         row.querySelector('.layer-opacity-slider').addEventListener('input', e => {
           const val = parseFloat(e.target.value) / 100;
           row.querySelector('.layer-opacity-label').textContent = `Opacidade: ${e.target.value}%`;
-          item.opacity = val;
-          setLayerOpacity(item.leafletLayer, val);
+          setLayerOpacity(item, val);
         });
         row.querySelector('.zoom-to').addEventListener('click', () => {
           try {
-            const b = item.leafletLayer.getBounds();
-            if (b && b.isValid()) map.fitBounds(b, { padding: [40, 40] });
+            if (item.geometryType === 'raster') {
+              const bounds = L.latLngBounds([TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT]);
+              map.fitBounds(bounds, { padding: [40, 40] });
+            } else {
+              const b = item.leafletLayer.getBounds();
+              if (b && b.isValid()) map.fitBounds(b, { padding: [40, 40] });
+            }
           } catch (_) {}
         });
         row.querySelector('.remove').addEventListener('click', () => removeLayerById(key, item.id));
@@ -416,138 +583,7 @@
   }
 
   /* ----------------------------------------------------------------
-     12. LEGENDA DINÂMICA (incluindo gradientes raster)
-  ---------------------------------------------------------------- */
-  const RASTER_LEGENDS = {
-    'LST_Verão': {
-      title: 'LST Verão (°C)',
-      gradient: 'linear-gradient(to right, #313695, #4575b4, #74add1, #abd9e9, #e0f3f8, #ffffbf, #fee090, #fdae61, #f46d43, #d73027, #a50026)',
-      minLabel: '< 28°C', maxLabel: '> 48°C',
-    },
-    'LST_Inverno': {
-      title: 'LST Inverno (°C)',
-      gradient: 'linear-gradient(to right, #4575b4, #74add1, #abd9e9, #e0f3f8, #ffffbf, #fee090, #fdae61, #f46d43)',
-      minLabel: '< 18°C', maxLabel: '> 36°C',
-    },
-    'c02eq': {
-      title: 'Carbono Equiv. (t/ha)',
-      gradient: 'linear-gradient(to right, #f7fbff, #deebf7, #c6dbef, #9ecae1, #6baed6, #4292c6, #2171b5, #08519c, #08306b)',
-      minLabel: '0', maxLabel: 'Alto',
-    },
-  };
-
-  function updateLegend() {
-    const legendBody = document.getElementById('legend-body');
-    if (!legendBody) return;
-    legendBody.innerHTML = '';
-    let hasAny = false;
-
-    // Rasters primeiro (gradientes)
-    const rasterActive = layerStore.raster.filter(i => i.visible);
-    if (rasterActive.length) {
-      rasterActive.forEach(item => {
-        const legend = RASTER_LEGENDS[item.rasterType];
-        if (!legend) return;
-        hasAny = true;
-        const div = document.createElement('div');
-        div.className = 'legend-gradient-block';
-        div.innerHTML = `
-          <div class="legend-gradient-title">${legend.title}</div>
-          <div class="legend-gradient-bar" style="background:${legend.gradient}"></div>
-          <div class="legend-gradient-labels">
-            <span>${legend.minLabel}</span><span>${legend.maxLabel}</span>
-          </div>`;
-        legendBody.appendChild(div);
-      });
-    }
-
-    // Vetores por grupo
-    const vectorGroups = ['limites','hidrografia','mobilidade','infraestrutura','vegetacao','importadas'];
-    vectorGroups.forEach(catKey => {
-      const visible = layerStore[catKey].filter(i => i.visible);
-      if (!visible.length) return;
-      hasAny = true;
-      visible.forEach(item => {
-        if (item.classifyBy && item.classifyFn) {
-          // Legend com múltiplas classes
-          const div = document.createElement('div');
-          div.className = 'legend-gradient-block';
-          div.innerHTML = `<div class="legend-gradient-title">${item.name}</div>`;
-          const classMap = item.classifyBy === 'Risco' ? RISCO_COLORS
-                        : item.classifyBy === 'Situacao' ? SITUACAO_COLORS
-                        : {};
-          Object.entries(classMap).forEach(([cls, col]) => {
-            if (cls === 'default') return;
-            const li = document.createElement('div');
-            li.className = 'legend-item';
-            const sym = item.geometryType === 'point' ? 'point' : 'polygon';
-            li.innerHTML = `
-              <span class="legend-symbol ${sym}" style="background:${col}44; border-color:${col};"></span>
-              <span class="legend-label">${cls}</span>`;
-            div.appendChild(li);
-          });
-          legendBody.appendChild(div);
-        } else {
-          const li = document.createElement('div');
-          li.className = 'legend-item';
-          let symClass = 'polygon';
-          if (item.geometryType === 'point') symClass = 'point';
-          else if (item.geometryType === 'line') symClass = 'line';
-          const symStyle = item.geometryType === 'line'
-            ? `background:${item.color};`
-            : `background:${item.color}44; border-color:${item.color};`;
-          li.innerHTML = `
-            <span class="legend-symbol ${symClass}" style="${symStyle}"></span>
-            <span class="legend-label" title="${item.name}">${item.name}</span>`;
-          legendBody.appendChild(li);
-        }
-      });
-    });
-
-    if (!hasAny) {
-      legendBody.innerHTML = '<p style="font-size:11px;color:var(--text-faint);margin:0;font-style:italic;">Nenhuma camada visível.</p>';
-    }
-  }
-
-  // Toggle legenda
-  const legendPanel = document.getElementById('legend-panel');
-  const legendToggleBtn = document.getElementById('btn-legend-toggle');
-  if (legendToggleBtn && legendPanel) {
-    legendToggleBtn.addEventListener('click', () => {
-      legendPanel.classList.toggle('collapsed');
-      legendToggleBtn.textContent = legendPanel.classList.contains('collapsed') ? '+' : '−';
-    });
-  }
-
-  /* ----------------------------------------------------------------
-     13. RASTER — Simulação visual de TIF como overlay colorido
-         (TIF bruto não é suportado no browser; simulamos como overlay
-          colorido com clip no limite da Riviera)
-  ---------------------------------------------------------------- */
-  function addRasterPlaceholder(name, rasterType, color, categoryKey = 'raster', active = false) {
-    const id = `layer-${layerIdCounter++}`;
-    // Cria um layer placeholder — ao carregar o limite da Riviera,
-    // este overlay é pintado sobre os bounds do limite.
-    const placeholderLayer = L.layerGroup();
-
-    if (active) placeholderLayer.addTo(map);
-
-    layerStore[categoryKey].push({
-      id, name,
-      color,
-      leafletLayer: placeholderLayer,
-      visible: active,
-      opacity: 0.7,
-      geometryType: 'polygon',
-      rasterType,
-    });
-
-    renderLayersTree();
-    updateLegend();
-  }
-
-  /* ----------------------------------------------------------------
-     14. VALIDAÇÃO WGS-84
+     13. VALIDAÇÃO WGS-84
   ---------------------------------------------------------------- */
   function isGeoJSONInWGS84(geojson) {
     const coords = [];
@@ -565,7 +601,7 @@
   }
 
   /* ----------------------------------------------------------------
-     15. UPLOAD DE ARQUIVOS
+     14. UPLOAD DE ARQUIVOS
   ---------------------------------------------------------------- */
   function readFileAsGeoJson(file) {
     return new Promise((resolve, reject) => {
@@ -638,34 +674,38 @@
   }
 
   /* ----------------------------------------------------------------
-     16. CARREGAMENTO AUTOMÁTICO DAS CAMADAS LOCAIS
-         (ordem de renderização: limites por baixo, raster acima, etc.)
+     15. CARREGAMENTO AUTOMÁTICO DAS CAMADAS LOCAIS (TODAS DESLIGADAS)
   ---------------------------------------------------------------- */
   const AUTO_LAYERS = [
     // ── LIMITES ──────────────────────────────────────────────────
     {
       file: 'Limites_riviera.geojson', name: 'Limites da Riviera',
       category: 'limites', active: false,
-      style: { color: '#22D3EE', weight: 2.5, fillOpacity: 0.05 },
+      style: { color: '#22D3EE', weight: 4.0, fillOpacity: 0 },
     },
     {
-      file: 'Modulos_riviera.geojson', name: 'Módulos da Riviera',
+      file: 'Modulos_riviera.geojson', name: 'Limites de Módulos',
       category: 'limites', active: false,
       style: {
-        color: '#F2B84B', weight: 2, fillOpacity: 0.06,
+        color: '#F2B84B', weight: 2.2, fillOpacity: 0.05,
         labelField: 'Divisão',
       },
     },
     // ── HIDROGRAFIA ──────────────────────────────────────────────
     {
       file: 'Bacias_de_contribuicao.geojson', name: 'Bacias de Contribuição',
-      category: 'hidrografia', active: false,
-      style: { color: '#38BDF8', weight: 2, fillOpacity: 0 },
+      category: 'hidrografia', active: true,
+      style: { color: '#F43F5E', weight: 4.0, fillOpacity: 0.1 },
     },
     {
       file: 'Hidrografia.geojson', name: 'Hidrografia',
       category: 'hidrografia', active: false,
-      style: { color: '#7DD3FC', weight: 2.5 },   // azul-claro
+      style: { color: '#7DD3FC', weight: 2.5 },
+    },
+    {
+      file: 'Hidrografia.geojson', name: 'Rede de Drenagem',
+      category: 'hidrografia', active: false,
+      style: { color: '#38BDF8', weight: 1.5 },
     },
     {
       file: 'Paleohidrografia.geojson', name: 'Paleohidrografia',
@@ -673,30 +713,25 @@
       style: { color: '#BAE6FD', weight: 1.5, dashArray: '6 4' },
     },
     {
-      file: 'Curvas_de_nivel.geojson', name: 'Curvas de Nível',
+      file: 'Curvas_pol.geojson', name: 'Curvas de Nível',
       category: 'hidrografia', active: false,
       style: { color: '#A16207', weight: 1, fillOpacity: 0 },
     },
     // ── MOBILIDADE ───────────────────────────────────────────────
     {
-      file: 'Ruas.geojson', name: 'Ruas',
-      category: 'mobilidade', active: false,
-      style: { color: '#94A3B8', weight: 1.5 },
-    },
-    {
       file: 'Ciclovias.geojson', name: 'Ciclovias',
       category: 'mobilidade', active: false,
-      style: { color: '#A78BFA', weight: 2.5 },   // roxo/violeta
+      style: { color: '#A78BFA', weight: 2.8 },
     },
     {
-      file: 'Linha_de_onibus.geojson', name: 'Linha de Ônibus',
+      file: 'Linha_de_onibus.geojson', name: 'Linhas de Ônibus',
       category: 'mobilidade', active: false,
       style: { color: '#FB923C', weight: 2 },
     },
     {
       file: 'Pontos_de_onibus.geojson', name: 'Pontos de Ônibus',
       category: 'mobilidade', active: false,
-      style: { color: '#FB923C', radius: 6 },
+      style: { color: '#FB923C', radius: 5 },
     },
     // ── INFRAESTRUTURA ───────────────────────────────────────────
     {
@@ -704,25 +739,26 @@
       category: 'infraestrutura', active: false,
       style: { color: '#FDE047', weight: 1.5 },
     },
-    // ── VEGETAÇÃO ────────────────────────────────────────────────
+    {
+      file: 'Ruas_pol.geojson', name: 'Sistema Viário',
+      category: 'infraestrutura', active: false,
+      style: { color: '#94A3B8', weight: 1, fillOpacity: 0.15 },
+    },
+    // ── PLANTIO E VEGETAÇÃO ──────────────────────────────────────
     {
       file: 'Inventario_florestal.geojson',
-      name: 'Inventário Florestal 2020 (SIMA)',  // Nome exibição alterado
+      name: 'Inventário Florestal 2020 (SIMA)',
       category: 'vegetacao', active: false,
-      style: { color: '#166534', weight: 1, fillOpacity: 0.25 }, // verde-escuro
+      style: { color: '#166534', weight: 1, fillOpacity: 0.25 },
     },
     {
       file: 'Possiveis_espacos_plantio.geojson', name: 'Possíveis Espaços de Plantio',
       category: 'vegetacao', active: false,
-      style: { color: '#4ADE80', weight: 1, fillOpacity: 0.2 },
-    },
-    {
-      // Vagas Verdes REMOVIDA conforme requisito
-      file: null, skip: true,
+      style: { color: '#4ADE80', weight: 1.2, fillOpacity: 0.2 },
     },
     {
       file: 'Inventario_de_arvores_filtrado.geojson',
-      name: 'Cadastro Arbóreo e Fiação Elétrica', // Nome alterado
+      name: 'Cadastro Arbóreo e Fiação Elétrica',
       category: 'vegetacao', active: false,
       style: {
         classifyBy: 'Risco',
@@ -730,10 +766,9 @@
         radius: 5,
       },
     },
-    // ── ÁREAS ────────────────────────────────────────────────────
     {
-      file: '300.geojson', name: 'Áreas 300m (por Situação)',
-      category: 'limites', active: false,
+      file: '300.geojson', name: 'Áreas 300 m',
+      category: 'vegetacao', active: false,
       style: {
         classifyBy: 'Situacao',
         classifyFn: getSituacaoColor,
@@ -741,8 +776,8 @@
       },
     },
     {
-      file: '300_buffer.geojson', name: 'Buffer 300m',
-      category: 'limites', active: false,
+      file: '300_buffer.geojson', name: 'Buffer 300 m',
+      category: 'vegetacao', active: false,
       style: { color: '#E879F9', weight: 1.5, fillOpacity: 0.1 },
     },
   ];
@@ -751,11 +786,23 @@
     let combinedBounds = L.latLngBounds();
     let loadedActive = 0;
 
-    // Registrar rasters (placeholders) primeiro
-    addRasterPlaceholder('LST_Verão',  'LST_Verão',  '#f46d43', 'raster', false);
-    addRasterPlaceholder('LST_Inverno','LST_Inverno','#4575b4', 'raster', false);
-    addRasterPlaceholder('c02eq',      'c02eq',      '#08519c', 'raster', false);
+    // 1. Carregar overlays de imagens locais usando L.imageOverlay.rotated
+    addRasterOverlay('Mapa de Temperatura Superficial - Verão',   './lst_verao.png',   'raster', false, 'verao');
+    addRasterOverlay('Mapa de Temperatura Superficial - Inverno', './lst_inverno.png', 'raster', false, 'inverno');
+    addRasterOverlay('Carbono Equivalente',                       './c02eq.png',       'raster', false, 'c02eq');
 
+    // 2. Carregar camada de Pontos de Interesse (Independente)
+    try {
+      const respPoi = await fetch(`../GeoJSON/Pontos_de_interesse.geojson`);
+      if (respPoi.ok) {
+        const dataPoi = await respPoi.json();
+        addPoiLayer(dataPoi);
+      }
+    } catch (err) {
+      console.warn('[Geoportal] Falha ao carregar Pontos de Interesse:', err.message);
+    }
+
+    // 3. Carregar camadas vetoriais
     for (const l of AUTO_LAYERS) {
       if (l.skip || !l.file) continue;
       try {
@@ -778,13 +825,15 @@
 
     if (loadedActive > 0 && combinedBounds.isValid()) {
       map.fitBounds(combinedBounds, { padding: [40, 40] });
+    } else {
+      // Bounding box padrão da Riviera se nenhuma camada estiver ativa no início
+      map.setView([INITIAL_VIEW.lat, INITIAL_VIEW.lng], INITIAL_VIEW.zoom);
     }
   }
 
   // Dispara carregamento
   loadAutoLayers().then(() => {
     renderLayersTree();
-    updateLegend();
   });
 
 })();
