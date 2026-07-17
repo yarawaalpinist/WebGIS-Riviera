@@ -319,25 +319,56 @@
     return leafletLayer;
   }
 
-  // Adiciona camada Raster (Rotated ImageOverlay)
+  // Adiciona camada Raster processando o fundo branco (Canvas pixel manipulation)
   function addRasterOverlay(name, url, categoryKey = 'raster', active = false, rasterType = '') {
-    const id = `layer-${layerIdCounter++}`;
+    return new Promise((resolve) => {
+      const id = `layer-${layerIdCounter++}`;
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        
+        try {
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imgData.data;
+          // Torna pixels brancos puros (ou quase) totalmente transparentes
+          for (let i = 0; i < data.length; i += 4) {
+            if (data[i] >= 253 && data[i+1] >= 253 && data[i+2] >= 253) {
+              data[i+3] = 0;
+            }
+          }
+          ctx.putImageData(imgData, 0, 0);
+          
+          const leafletLayer = L.imageOverlay.rotated(canvas, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, {
+            opacity: 0.7,
+            interactive: false
+          });
 
-    const leafletLayer = L.imageOverlay.rotated(url, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, {
-      opacity: 0.7,
-      interactive: false,
-      className: 'remover-fundo-branco'
+          if (active) leafletLayer.addTo(map);
+
+          layerStore[categoryKey].push({
+            id, name, color: '#22D3EE', leafletLayer,
+            visible: active, opacity: 0.7, geometryType: 'raster',
+            rasterType,
+          });
+        } catch (e) {
+          console.warn('[Geoportal] Erro ao manipular pixels do raster:', e);
+        }
+        resolve();
+      };
+      
+      img.onerror = () => {
+        console.warn(`[Geoportal] Falha ao carregar raster: ${url}`);
+        resolve();
+      };
+      
+      img.src = url;
     });
-
-    if (active) leafletLayer.addTo(map);
-
-    layerStore[categoryKey].push({
-      id, name, color: '#22D3EE', leafletLayer,
-      visible: active, opacity: 0.7, geometryType: 'raster',
-      rasterType,
-    });
-
-    renderLayersTree();
   }
 
   // Adiciona a camada independente de Pontos de Interesse
@@ -700,14 +731,9 @@
       style: { color: '#F43F5E', weight: 4.0, fillOpacity: 0.1 },
     },
     {
-      file: 'Hidrografia.geojson', name: 'Hidrografia',
+      file: 'Hidrografia.geojson', name: 'Hidrografia e Rede de Drenagem',
       category: 'hidrografia', active: false,
-      style: { color: '#7DD3FC', weight: 2.5 },
-    },
-    {
-      file: 'Hidrografia.geojson', name: 'Rede de Drenagem',
-      category: 'hidrografia', active: false,
-      style: { color: '#38BDF8', weight: 1.5 },
+      style: { color: '#38BDF8', weight: 2.0 },
     },
     {
       file: 'Paleohidrografia.geojson', name: 'Paleohidrografia',
@@ -788,10 +814,10 @@
     let combinedBounds = L.latLngBounds();
     let loadedActive = 0;
 
-    // 1. Carregar overlays de imagens locais usando L.imageOverlay.rotated
-    addRasterOverlay('Mapa de Temperatura Superficial - Verão',   './lst_verao.png',   'raster', false, 'verao');
-    addRasterOverlay('Mapa de Temperatura Superficial - Inverno', './lst_inverno.png', 'raster', false, 'inverno');
-    addRasterOverlay('Carbono Equivalente',                       './c02eq.png',       'raster', false, 'c02eq');
+    // 1. Carregar overlays de imagens locais aguardando o processamento
+    await addRasterOverlay('Mapa de Temperatura Superficial - Verão',   './lst_verao.png',   'raster', false, 'verao');
+    await addRasterOverlay('Mapa de Temperatura Superficial - Inverno', './lst_inverno.png', 'raster', false, 'inverno');
+    await addRasterOverlay('Carbono Equivalente',                       './c02eq.png',       'raster', false, 'c02eq');
 
     // 2. Carregar camada de Pontos de Interesse (Independente)
     try {
