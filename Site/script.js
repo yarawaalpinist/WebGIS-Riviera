@@ -464,6 +464,10 @@
             legendItemHtml = `
               <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #d7191c, #fdae61, #ffffc0, #a6d96a, #1a9641);"></div>
               <div class="layer-legend-labels"><span>-82,8368149 tCO²eq</span><span>196,4725037 tCO²eq</span></div>`;
+          } else if (item.rasterType === 'mde') {
+            legendItemHtml = `
+              <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #fbfbe8, #a1dab4, #41b6c4, #225ea8, #081d58);"></div>
+              <div class="layer-legend-labels"><span>5 m</span><span>18 m</span></div>`;
           }
         } else if (item.classifyBy && item.classifyFn) {
           const classMap = item.classifyBy === 'Risco' ? RISCO_COLORS : item.classifyBy === 'Situacao' ? SITUACAO_COLORS : {};
@@ -838,6 +842,7 @@
     await addRasterOverlay('Mapa de Temperatura Superficial - Verão',   './lst_verao.png',   'raster', false, 'verao');
     await addRasterOverlay('Mapa de Temperatura Superficial - Inverno', './lst_inverno.png', 'raster', false, 'inverno');
     await addRasterOverlay('Carbono Equivalente',                       './c02eq.png',       'raster', false, 'c02eq');
+    await addRasterOverlay('Modelo Digital de Elevação (m)',            './Modelo Digital de Elevação.png', 'raster', false, 'mde');
 
     // 2. Carregar camada de Pontos de Interesse (Independente)
     try {
