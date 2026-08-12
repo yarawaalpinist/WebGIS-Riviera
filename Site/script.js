@@ -149,6 +149,7 @@
     mobilidade:    { label: '🚲 Mobilidade',              key: 'mobilidade' },
     infraestrutura:{ label: '⚡ Infraestrutura',          key: 'infraestrutura' },
     vegetacao:     { label: '🌿 Plantio e Vegetação',     key: 'vegetacao' },
+    olivia:        { label: '📍 Mapeamento da Olivia',    key: 'olivia' },
     importadas:    { label: '📂 Camadas Importadas',      key: 'importadas' },
   };
 
@@ -160,7 +161,7 @@
   const layerStore = {
     independent: [], // Para "Pontos de Interesse"
     raster: [], limites: [], hidrografia: [], mobilidade: [],
-    infraestrutura: [], vegetacao: [], importadas: [],
+    infraestrutura: [], vegetacao: [], olivia: [], importadas: [],
   };
 
   let colorCursor = 0;
@@ -831,6 +832,32 @@
       file: '300_buffer.geojson', name: 'Buffer 300 m',
       category: 'vegetacao', active: false,
       style: { color: '#E879F9', weight: 1.5, fillOpacity: 0.1 },
+    },
+    // ── MAPEAMENTO DA OLIVIA ─────────────────────────────────────
+    {
+      file: 'Olivia/Rotatorias_parques.geojson', name: 'Rotatórias-parques',
+      category: 'olivia', active: false,
+      style: { color: '#22C55E', weight: 1.5, fillOpacity: 0.2 },
+    },
+    {
+      file: 'Olivia/Parque_linear.geojson', name: 'Parque Linear',
+      category: 'olivia', active: false,
+      style: { color: '#22C55E', weight: 2.5 },
+    },
+    {
+      file: 'Olivia/Vagas_verdes_linear.geojson', name: 'Avenidas e extensão das vagas verdes',
+      category: 'olivia', active: false,
+      style: { color: '#86EFAC', weight: 2.5 },
+    },
+    {
+      file: 'Olivia/Biovaletas.geojson', name: 'Passeios com biovaletas e ciclovias no meio',
+      category: 'olivia', active: false,
+      style: { color: '#EF4444', weight: 2.5 },
+    },
+    {
+      file: 'Olivia/Cul_de_sac.geojson', name: 'Rotatórias filtrantes (Cul de Sac)',
+      category: 'olivia', active: false,
+      style: { color: '#F97316', weight: 1.5, fillOpacity: 0.2 },
     },
   ];
 
