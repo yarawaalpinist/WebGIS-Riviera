@@ -886,7 +886,11 @@
     for (const l of AUTO_LAYERS) {
       if (l.skip || !l.file) continue;
       try {
-        const resp = await fetch(`../GeoJSON/${l.file}`);
+        let url = `../GeoJSON/${l.file}`;
+        if (l.file.includes('Vagas_verdes_linear.geojson')) {
+          url += '?v=' + new Date().getTime();
+        }
+        const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
 
