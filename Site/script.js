@@ -149,7 +149,7 @@
     mobilidade:    { label: '🚲 Mobilidade',              key: 'mobilidade' },
     infraestrutura:{ label: '⚡ Infraestrutura',          key: 'infraestrutura' },
     vegetacao:     { label: '🌿 Plantio e Vegetação',     key: 'vegetacao' },
-    olivia:        { label: '📍 Mapeamento da Olivia',    key: 'olivia' },
+    olivia:        { label: '📍 Possíveis intervenções de SbN', key: 'olivia' },
     importadas:    { label: '📂 Camadas Importadas',      key: 'importadas' },
   };
 
@@ -805,11 +805,6 @@
       style: { color: '#166534', weight: 1, fillOpacity: 0.25 },
     },
     {
-      file: 'Possiveis_espacos_plantio.geojson', name: 'Possíveis Espaços de Plantio',
-      category: 'vegetacao', active: false,
-      style: { color: '#4ADE80', weight: 1.2, fillOpacity: 0.2 },
-    },
-    {
       file: 'Inventario_de_arvores_filtrado.geojson',
       name: 'Cadastro Arbóreo e Fiação Elétrica',
       category: 'vegetacao', active: false,
@@ -833,7 +828,12 @@
       category: 'vegetacao', active: false,
       style: { color: '#E879F9', weight: 1.5, fillOpacity: 0.1 },
     },
-    // ── MAPEAMENTO DA OLIVIA ─────────────────────────────────────
+    // ── POSSÍVEIS INTERVENÇÕES DE SBN ────────────────────────────
+    {
+      file: 'Possiveis_espacos_plantio.geojson', name: 'Possíveis Espaços de Plantio',
+      category: 'olivia', active: false,
+      style: { color: '#4ADE80', weight: 1.2, fillOpacity: 0.2 },
+    },
     {
       file: 'Olivia/Rotatorias_parques.geojson', name: 'Rotatórias-parques',
       category: 'olivia', active: false,
