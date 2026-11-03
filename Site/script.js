@@ -845,6 +845,11 @@
       style: { color: '#22C55E', weight: 2.5 },
     },
     {
+      file: 'vagas_verdes.geojson', name: 'Vagas Verdes',
+      category: 'olivia', active: false,
+      style: { color: '#16A34A', weight: 2.5 },
+    },
+    {
       file: 'Olivia/Vagas_verdes_linear.geojson', name: 'Avenidas e extensão das vagas verdes',
       category: 'olivia', active: false,
       style: { color: '#86EFAC', weight: 2.5 },
@@ -887,7 +892,7 @@
       if (l.skip || !l.file) continue;
       try {
         let url = `../GeoJSON/${l.file}`;
-        if (l.file.includes('Vagas_verdes_linear.geojson') || l.file.includes('Possiveis_espacos_plantio2.geojson')) {
+        if (l.file.toLowerCase().includes('vagas_verdes') || l.file.includes('Possiveis_espacos_plantio2.geojson')) {
           url += '?v=' + new Date().getTime();
         }
         const resp = await fetch(url);
