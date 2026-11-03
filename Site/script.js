@@ -830,7 +830,7 @@
     },
     // ── POSSÍVEIS INTERVENÇÕES DE SBN ────────────────────────────
     {
-      file: 'Possiveis_espacos_plantio.geojson', name: 'Possíveis Espaços de Plantio',
+      file: 'Possiveis_espacos_plantio2.geojson', name: 'Possíveis Espaços de Plantio',
       category: 'olivia', active: false,
       style: { color: '#4ADE80', weight: 1.2, fillOpacity: 0.2 },
     },
@@ -887,7 +887,7 @@
       if (l.skip || !l.file) continue;
       try {
         let url = `../GeoJSON/${l.file}`;
-        if (l.file.includes('Vagas_verdes_linear.geojson')) {
+        if (l.file.includes('Vagas_verdes_linear.geojson') || l.file.includes('Possiveis_espacos_plantio2.geojson')) {
           url += '?v=' + new Date().getTime();
         }
         const resp = await fetch(url);
