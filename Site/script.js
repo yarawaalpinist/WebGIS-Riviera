@@ -457,7 +457,7 @@
         let legendItemHtml = '';
 
         if (item.geometryType === 'raster') {
-          if (item.rasterType === 'verao' || item.rasterType === 'inverno') {
+          if (item.rasterType === 'verao' || item.rasterType === 'inverno' || item.rasterType === 'outono') {
             legendItemHtml = `
               <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #ffffc7, #fed976, #feb24c, #fd8d3c, #f03b20, #bd0026, #000000);"></div>
               <div class="layer-legend-labels"><span>22 °C</span><span>33 °C</span><span>44 °C</span></div>`;
@@ -867,7 +867,7 @@
 
     // 1. Carregar overlays de imagens locais aguardando o processamento
     await addRasterOverlay('Mapa de Temperatura Superficial - Verão',   './lst_verao.png',   'raster', false, 'verao');
-    await addRasterOverlay('Mapa de Temperatura Superficial - Inverno', './lst_inverno.png', 'raster', false, 'inverno');
+    await addRasterOverlay('Mapa de Temperatura Superficial - Outono',  './lst_inverno.png', 'raster', false, 'outono');
     await addRasterOverlay('Carbono Equivalente',                       './c02eq.png',       'raster', false, 'c02eq');
     await addRasterOverlay('Modelo Digital de Elevação (m)',            './Modelo Digital de Elevação.png', 'raster', false, 'mde');
 
