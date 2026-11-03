@@ -845,12 +845,7 @@
       style: { color: '#22C55E', weight: 2.5 },
     },
     {
-      file: 'vagas_verdes.geojson', name: 'Vagas Verdes',
-      category: 'olivia', active: false,
-      style: { color: '#16A34A', weight: 2.5 },
-    },
-    {
-      file: 'Olivia/Vagas_verdes_linear.geojson', name: 'Avenidas e extensão das vagas verdes',
+      file: 'vagas_verdes.geojson', name: 'Avenida e extensão das vagas verdes',
       category: 'olivia', active: false,
       style: { color: '#86EFAC', weight: 2.5 },
     },
