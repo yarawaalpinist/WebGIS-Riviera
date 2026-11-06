@@ -198,7 +198,8 @@
           l.setOpacity(val);
         } else if (typeof l.setStyle === 'function') {
           const isPoly = l instanceof L.Polygon;
-          l.setStyle({ opacity: val, fillOpacity: isPoly ? val * 0.35 : val * 0.18 });
+          const targetFill = (item.customFillOpacity != null) ? item.customFillOpacity : (isPoly ? val * 0.35 : val * 0.18);
+          l.setStyle({ opacity: val, fillOpacity: targetFill });
         }
       });
     }
@@ -252,6 +253,148 @@
   }
 
   /* ----------------------------------------------------------------
+     10.1 POLEYLABEL — Ponto mais interno do polígono (Pole of Inaccessibility)
+  ---------------------------------------------------------------- */
+  function polylabel(polygon, precision) {
+    precision = precision || 0.00001;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const ring = polygon && polygon[0];
+    if (!ring || !ring.length) return [0, 0];
+
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i];
+      if (p[0] < minX) minX = p[0];
+      if (p[1] < minY) minY = p[1];
+      if (p[0] > maxX) maxX = p[0];
+      if (p[1] > maxY) maxY = p[1];
+    }
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const cellSize = Math.min(width, height);
+    let h = cellSize / 2;
+
+    if (cellSize === 0) return [minX, minY];
+
+    function Cell(x, y, h) {
+      this.x = x;
+      this.y = y;
+      this.h = h;
+      this.d = pointToPolygonDist(x, y, polygon);
+      this.max = this.d + this.h * Math.SQRT2;
+    }
+
+    const cellQueue = [];
+
+    for (let x = minX; x < maxX; x += cellSize) {
+      for (let y = minY; y < maxY; y += cellSize) {
+        cellQueue.push(new Cell(x + h, y + h, h));
+      }
+    }
+
+    let bestCell = getCentroidCell(polygon);
+    const bboxCell = new Cell(minX + width / 2, minY + height / 2, 0);
+    if (bboxCell.d > bestCell.d) bestCell = bboxCell;
+
+    while (cellQueue.length) {
+      let bestIdx = 0;
+      let highestMax = cellQueue[0].max;
+      for (let i = 1; i < cellQueue.length; i++) {
+        if (cellQueue[i].max > highestMax) {
+          highestMax = cellQueue[i].max;
+          bestIdx = i;
+        }
+      }
+      const cell = cellQueue.splice(bestIdx, 1)[0];
+
+      if (cell.d > bestCell.d) {
+        bestCell = cell;
+      }
+
+      if (cell.max - bestCell.d <= precision) continue;
+
+      h = cell.h / 2;
+      cellQueue.push(new Cell(cell.x - h, cell.y - h, h));
+      cellQueue.push(new Cell(cell.x + h, cell.y - h, h));
+      cellQueue.push(new Cell(cell.x - h, cell.y + h, h));
+      cellQueue.push(new Cell(cell.x + h, cell.y + h, h));
+    }
+
+    return [bestCell.x, bestCell.y];
+  }
+
+  function pointToPolygonDist(x, y, polygon) {
+    let inside = false;
+    let minDistSq = Infinity;
+
+    for (let k = 0; k < polygon.length; k++) {
+      const ring = polygon[k];
+      for (let i = 0, len = ring.length, j = len - 1; i < len; j = i++) {
+        const a = ring[i];
+        const b = ring[j];
+
+        if ((a[1] > y !== b[1] > y) &&
+            (x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0])) {
+          inside = !inside;
+        }
+
+        minDistSq = Math.min(minDistSq, getSegDistSq(x, y, a, b));
+      }
+    }
+
+    return (inside ? 1 : -1) * Math.sqrt(minDistSq);
+  }
+
+  function getCentroidCell(polygon) {
+    let area = 0;
+    let x = 0;
+    let y = 0;
+    const points = polygon[0];
+
+    for (let i = 0, len = points.length, j = len - 1; i < len; j = i++) {
+      const a = points[i];
+      const b = points[j];
+      const f = a[0] * b[1] - b[0] * a[1];
+      x += (a[0] + b[0]) * f;
+      y += (a[1] + b[1]) * f;
+      area += f * 3;
+    }
+    if (area === 0) return { x: points[0][0], y: points[0][1], d: 0, h: 0, max: 0 };
+    const cx = x / area;
+    const cy = y / area;
+    return {
+      x: cx,
+      y: cy,
+      d: pointToPolygonDist(cx, cy, polygon),
+      h: 0,
+      max: 0
+    };
+  }
+
+  function getSegDistSq(px, py, a, b) {
+    let x = a[0];
+    let y = a[1];
+    let dx = b[0] - x;
+    let dy = b[1] - y;
+
+    if (dx !== 0 || dy !== 0) {
+      const t = ((px - x) * dx + (py - y) * dy) / (dx * dx + dy * dy);
+      if (t > 1) {
+        x = b[0];
+        y = b[1];
+      } else if (t > 0) {
+        x += dx * t;
+        y += dy * t;
+      }
+    }
+
+    dx = px - x;
+    dy = py - y;
+    return dx * dx + dy * dy;
+  }
+
+  /* ----------------------------------------------------------------
      11. ADICIONAR CAMADAS AO MAPA
   ---------------------------------------------------------------- */
 
@@ -287,24 +430,48 @@
           fillColor:   c,
           fillOpacity: customStyle && customStyle.fillOpacity != null ? customStyle.fillOpacity : (isPoly ? 0.22 : 0.1),
           opacity:     customStyle && customStyle.opacity != null ? customStyle.opacity : 1,
+          lineCap:     customStyle && customStyle.lineCap ? customStyle.lineCap : 'round',
+          lineJoin:    customStyle && customStyle.lineJoin ? customStyle.lineJoin : 'round',
         };
       },
       onEachFeature: (feature, layer) => {
-        const html = buildPopup(name, feature);
+        const html = (customStyle && customStyle.customPopup)
+          ? customStyle.customPopup(feature)
+          : buildPopup(name, feature);
         if (html) layer.bindPopup(html, { maxWidth: 320, maxHeight: 300 });
+
+        if (customStyle && customStyle.usePoleOfInaccessibility && feature.geometry && (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon')) {
+          const coords = feature.geometry.type === 'Polygon'
+            ? feature.geometry.coordinates
+            : feature.geometry.coordinates[0];
+          const pole = polylabel(coords, 0.00001);
+          if (pole && pole.length >= 2) {
+            layer.getCenter = function() {
+              return L.latLng(pole[1], pole[0]);
+            };
+          }
+        }
 
         if (customStyle && customStyle.labelField) {
           const val = feature.properties && feature.properties[customStyle.labelField];
           if (val) {
-            layer.bindTooltip(val, {
+            layer.bindTooltip(String(val), {
               permanent: true,
               direction: 'center',
-              className: 'modulo-label-inner-tooltip'
+              className: customStyle.labelClass || 'modulo-label-tooltip',
+              interactive: false,
             });
           }
         }
       },
     });
+
+    if (customStyle && customStyle.bringToBack) {
+      leafletLayer.bringToBack();
+      leafletLayer.on('add', () => {
+        leafletLayer.bringToBack();
+      });
+    }
 
     if (active) leafletLayer.addTo(map);
 
@@ -314,6 +481,8 @@
       rasterType: null,
       classifyBy: customStyle && customStyle.classifyBy ? customStyle.classifyBy : null,
       classifyFn: customStyle && customStyle.classifyFn ? customStyle.classifyFn : null,
+      customFillOpacity: customStyle && customStyle.fillOpacity != null ? customStyle.fillOpacity : null,
+      bringToBack: customStyle && customStyle.bringToBack ? true : false,
     });
 
     renderLayersTree();
@@ -431,6 +600,9 @@
     item.visible = visible;
     if (visible) {
       item.leafletLayer.addTo(map);
+      if (item.bringToBack) {
+        item.leafletLayer.bringToBack();
+      }
       setLayerOpacity(item, item.opacity);
     } else {
       map.removeLayer(item.leafletLayer);
@@ -480,7 +652,10 @@
           legendItemHtml = `<div class="layer-legend-list">${itemsHtml}</div>`;
         } else {
           if (item.geometryType === 'polygon') {
-            legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${item.color}33; border-color:${item.color}"></span><span>Polígono</span></div>`;
+            const boxBg = item.customFillOpacity === 0 ? 'transparent' : `${item.color}33`;
+            const boxBorder = item.customFillOpacity === 0 ? `2px solid ${item.color}` : `1px solid ${item.color}`;
+            const boxLabel = item.customFillOpacity === 0 ? 'Contorno' : 'Polígono';
+            legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${boxBg}; border:${boxBorder}"></span><span>${boxLabel}</span></div>`;
           } else if (item.geometryType === 'line') {
             legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-line" style="background:${item.color}"></span><span>Linha</span></div>`;
           } else {
@@ -741,14 +916,6 @@
       category: 'limites', active: false,
       style: { color: '#22D3EE', weight: 4.0, fillOpacity: 0 },
     },
-    {
-      file: 'Modulos_riviera.geojson', name: 'Limites de Módulos',
-      category: 'limites', active: false,
-      style: {
-        color: '#F2B84B', weight: 2.2, fillOpacity: 0.05,
-        labelField: 'Divisão',
-      },
-    },
     // ── HIDROGRAFIA ──────────────────────────────────────────────
     {
       file: 'Bacias_de_contribuicao.geojson', name: 'Bacias de Contribuição',
@@ -905,6 +1072,73 @@
       } catch (err) {
         console.warn(`[Geoportal] Camada "${l.name}" não carregada:`, err.message);
       }
+    }
+
+    // 4. Carregar novos limites dos módulos por grupo (1 a 11) — Todos iniciam ligados
+    try {
+      let dataMod = null;
+      if (typeof window !== 'undefined' && window.MODULOS_RIVIERA_DATA) {
+        dataMod = window.MODULOS_RIVIERA_DATA;
+      } else {
+        const respMod = await fetch(`../GeoJSON/modulos_riviera_limites_grupos_wgs84.geojson?v=${Date.now()}`);
+        if (!respMod.ok) throw new Error(`HTTP ${respMod.status}`);
+        dataMod = await respMod.json();
+      }
+
+      const features = (dataMod && dataMod.features) || [];
+
+      // Agrupar feições por grupo (1 a 11)
+      const groupsMap = {};
+      for (const f of features) {
+        const g = f.properties && f.properties.grupo;
+        if (g != null) {
+          if (!groupsMap[g]) groupsMap[g] = [];
+          groupsMap[g].push(f);
+        }
+      }
+
+      const sortedGroupNums = Object.keys(groupsMap).map(Number).sort((a, b) => a - b);
+      for (const g of sortedGroupNums) {
+        const gFeatures = groupsMap[g];
+        // Ordenar módulos por número (ex: M1, M22, M26)
+        gFeatures.sort((a, b) => ((a.properties && a.properties.num) || 0) - ((b.properties && b.properties.num) || 0));
+        const modNames = gFeatures.map(f => f.properties && f.properties.modulo).filter(Boolean).join(', ');
+        const layerName = `Grupo ${g} (${modNames})`;
+
+        const groupGeoJson = {
+          type: 'FeatureCollection',
+          features: gFeatures,
+        };
+
+        const lyr = addGeoJsonToMap(layerName, groupGeoJson, 'limites', true, {
+          color: '#FE9D27',
+          weight: 1.74,
+          opacity: 1,
+          fill: true,
+          fillColor: '#FE9D27',
+          fillOpacity: 0,
+          lineCap: 'square',
+          lineJoin: 'bevel',
+          labelField: 'modulo',
+          labelClass: 'modulo-label-tooltip',
+          usePoleOfInaccessibility: true,
+          bringToBack: true,
+          customPopup: (feature) => {
+            const p = feature.properties || {};
+            const areaFormatted = Number(p.area_ha != null ? p.area_ha : 0).toLocaleString('pt-BR', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            });
+            return `Módulo ${p.modulo || ''} / Grupo ${p.grupo != null ? p.grupo : ''} / ${areaFormatted} ha`;
+          },
+        });
+
+        if (lyr) {
+          lyr.bringToBack();
+        }
+      }
+    } catch (err) {
+      console.warn('[Geoportal] Falha ao carregar Limites dos Módulos:', err.message);
     }
 
     if (loadedActive > 0 && combinedBounds.isValid()) {
