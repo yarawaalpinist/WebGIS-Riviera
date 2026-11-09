@@ -810,3 +810,49 @@ button:focus-visible, [tabindex]:focus-visible, input:focus-visible {
   height: 3px;
   border-radius: 1px;
 }
+
+/* Subcamadas dentro de uma camada */
+.layer-parent-card {
+  border-left: 2px solid rgba(254, 157, 39, 0.4) !important;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px !important;
+}
+
+.layer-sub-caret {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0 4px 0 0;
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.layer-sub-caret:hover {
+  color: var(--text-primary);
+}
+
+.layer-sub-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+.layer-sublayers-list {
+  margin-top: 8px;
+  margin-left: 8px;
+  padding-left: 10px;
+  border-left: 1px dashed rgba(255, 255, 255, 0.15);
+}
+
+.layer-sub-item {
+  padding: 6px 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.layer-sub-item:last-child {
+  border-bottom: none;
+}

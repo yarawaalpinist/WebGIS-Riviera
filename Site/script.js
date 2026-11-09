@@ -198,7 +198,7 @@
           l.setOpacity(val);
         } else if (typeof l.setStyle === 'function') {
           const isPoly = l instanceof L.Polygon;
-          const targetFill = (item.customFillOpacity != null) ? item.customFillOpacity : (isPoly ? val * 0.35 : val * 0.18);
+          const targetFill = (item.customFillOpacity != null) ? (item.customFillOpacity * val) : (isPoly ? val * 0.35 : val * 0.18);
           l.setStyle({ opacity: val, fillOpacity: targetFill });
         }
       });
@@ -398,8 +398,8 @@
      11. ADICIONAR CAMADAS AO MAPA
   ---------------------------------------------------------------- */
 
-  // Adiciona GeoJSON
-  function addGeoJsonToMap(name, geojson, categoryKey = 'importadas', active = false, customStyle = null) {
+  // Cria item de camada GeoJSON
+  function createGeoJsonLayerItem(name, geojson, active = false, customStyle = null) {
     const groupKey = dominantGeometryType(geojson);
     const defColor = customStyle ? customStyle.color || nextColor() : nextColor();
     const id = `layer-${layerIdCounter++}`;
@@ -427,7 +427,7 @@
           color:       c,
           weight:      customStyle && customStyle.weight != null ? customStyle.weight : (isPoly ? 1.5 : 2.5),
           dashArray:   customStyle && customStyle.dashArray ? customStyle.dashArray : null,
-          fillColor:   c,
+          fillColor:   customStyle && customStyle.fillColor ? customStyle.fillColor : c,
           fillOpacity: customStyle && customStyle.fillOpacity != null ? customStyle.fillOpacity : (isPoly ? 0.22 : 0.1),
           opacity:     customStyle && customStyle.opacity != null ? customStyle.opacity : 1,
           lineCap:     customStyle && customStyle.lineCap ? customStyle.lineCap : 'round',
@@ -475,7 +475,7 @@
 
     if (active) leafletLayer.addTo(map);
 
-    layerStore[categoryKey].push({
+    return {
       id, name, color: defColor, leafletLayer,
       visible: active, opacity: 1.0, geometryType: groupKey,
       rasterType: null,
@@ -483,10 +483,15 @@
       classifyFn: customStyle && customStyle.classifyFn ? customStyle.classifyFn : null,
       customFillOpacity: customStyle && customStyle.fillOpacity != null ? customStyle.fillOpacity : null,
       bringToBack: customStyle && customStyle.bringToBack ? true : false,
-    });
+    };
+  }
 
+  // Adiciona GeoJSON
+  function addGeoJsonToMap(name, geojson, categoryKey = 'importadas', active = false, customStyle = null) {
+    const item = createGeoJsonLayerItem(name, geojson, active, customStyle);
+    layerStore[categoryKey].push(item);
     renderLayersTree();
-    return leafletLayer;
+    return item.leafletLayer;
   }
 
   // Adiciona camada Raster processando o fundo branco (Canvas pixel manipulation)
@@ -610,6 +615,20 @@
     renderLayersTree();
   }
 
+  function toggleSublayerVisibility(parentItem, subItem, visible) {
+    subItem.visible = visible;
+    if (visible) {
+      subItem.leafletLayer.addTo(map);
+      if (subItem.bringToBack) {
+        subItem.leafletLayer.bringToBack();
+      }
+      setLayerOpacity(subItem, subItem.opacity);
+    } else {
+      map.removeLayer(subItem.leafletLayer);
+    }
+    parentItem.visible = parentItem.sublayers.every(s => s.visible);
+  }
+
   /* ----------------------------------------------------------------
      12. RENDER DA ÁRVORE DE CAMADAS COM LEGENDAS EMBUTIDAS
   ---------------------------------------------------------------- */
@@ -622,53 +641,56 @@
     let hasActive = false;
 
     Object.keys(layerStore).forEach(categoryKey => {
-      layerStore[categoryKey].forEach(item => {
-        if (!item.visible) return;
-        hasActive = true;
-        
-        let legendItemHtml = '';
+      layerStore[categoryKey].forEach(rawItem => {
+        const checkList = rawItem.isParent ? rawItem.sublayers : [rawItem];
+        checkList.forEach(item => {
+          if (!item.visible) return;
+          hasActive = true;
+          
+          let legendItemHtml = '';
 
-        if (item.geometryType === 'raster') {
-          if (item.rasterType === 'verao' || item.rasterType === 'inverno' || item.rasterType === 'outono') {
-            legendItemHtml = `
-              <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #ffffc7, #fed976, #feb24c, #fd8d3c, #f03b20, #bd0026, #000000);"></div>
-              <div class="layer-legend-labels"><span>22 °C</span><span>33 °C</span><span>44 °C</span></div>`;
-          } else if (item.rasterType === 'c02eq') {
-            legendItemHtml = `
-              <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #d7191c, #fdae61, #ffffc0, #a6d96a, #1a9641);"></div>
-              <div class="layer-legend-labels"><span>-82,8368149 tCO²eq</span><span>196,4725037 tCO²eq</span></div>`;
-          } else if (item.rasterType === 'mde') {
-            legendItemHtml = `
-              <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #fbfbe8, #a1dab4, #41b6c4, #225ea8, #081d58);"></div>
-              <div class="layer-legend-labels"><span>5 m</span><span>18 m</span></div>`;
-          }
-        } else if (item.classifyBy && item.classifyFn) {
-          const classMap = item.classifyBy === 'Risco' ? RISCO_COLORS : item.classifyBy === 'Situacao' ? SITUACAO_COLORS : {};
-          let itemsHtml = '';
-          Object.entries(classMap).forEach(([cls, col]) => {
-            if (cls === 'default') return;
-            itemsHtml += `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${col}"></span><span>${cls}</span></div>`;
-          });
-          legendItemHtml = `<div class="layer-legend-list">${itemsHtml}</div>`;
-        } else {
-          if (item.geometryType === 'polygon') {
-            const boxBg = item.customFillOpacity === 0 ? 'transparent' : `${item.color}33`;
-            const boxBorder = item.customFillOpacity === 0 ? `2px solid ${item.color}` : `1px solid ${item.color}`;
-            const boxLabel = item.customFillOpacity === 0 ? 'Contorno' : 'Polígono';
-            legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${boxBg}; border:${boxBorder}"></span><span>${boxLabel}</span></div>`;
-          } else if (item.geometryType === 'line') {
-            legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-line" style="background:${item.color}"></span><span>Linha</span></div>`;
+          if (item.geometryType === 'raster') {
+            if (item.rasterType === 'verao' || item.rasterType === 'inverno' || item.rasterType === 'outono') {
+              legendItemHtml = `
+                <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #ffffc7, #fed976, #feb24c, #fd8d3c, #f03b20, #bd0026, #000000);"></div>
+                <div class="layer-legend-labels"><span>22 °C</span><span>33 °C</span><span>44 °C</span></div>`;
+            } else if (item.rasterType === 'c02eq') {
+              legendItemHtml = `
+                <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #d7191c, #fdae61, #ffffc0, #a6d96a, #1a9641);"></div>
+                <div class="layer-legend-labels"><span>-82,8368149 tCO²eq</span><span>196,4725037 tCO²eq</span></div>`;
+            } else if (item.rasterType === 'mde') {
+              legendItemHtml = `
+                <div class="layer-legend-gradient-bar" style="background: linear-gradient(to right, #fbfbe8, #a1dab4, #41b6c4, #225ea8, #081d58);"></div>
+                <div class="layer-legend-labels"><span>5 m</span><span>18 m</span></div>`;
+            }
+          } else if (item.classifyBy && item.classifyFn) {
+            const classMap = item.classifyBy === 'Risco' ? RISCO_COLORS : item.classifyBy === 'Situacao' ? SITUACAO_COLORS : {};
+            let itemsHtml = '';
+            Object.entries(classMap).forEach(([cls, col]) => {
+              if (cls === 'default') return;
+              itemsHtml += `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${col}"></span><span>${cls}</span></div>`;
+            });
+            legendItemHtml = `<div class="layer-legend-list">${itemsHtml}</div>`;
           } else {
-            legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${item.color}; border-radius:50%"></span><span>Ponto</span></div>`;
+            if (item.geometryType === 'polygon') {
+              const boxBg = item.customFillOpacity === 0 ? 'transparent' : `${item.color}33`;
+              const boxBorder = item.customFillOpacity === 0 ? `2px solid ${item.color}` : `1px solid ${item.color}`;
+              const boxLabel = item.customFillOpacity === 0 ? 'Contorno' : 'Polígono';
+              legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${boxBg}; border:${boxBorder}"></span><span>${boxLabel}</span></div>`;
+            } else if (item.geometryType === 'line') {
+              legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-line" style="background:${item.color}"></span><span>Linha</span></div>`;
+            } else {
+              legendItemHtml = `<div class="global-legend-symbol"><span class="global-legend-color-box" style="background:${item.color}; border-radius:50%"></span><span>Ponto</span></div>`;
+            }
           }
-        }
 
-        html += `
-          <div class="global-legend-item">
-            <span class="global-legend-title">${item.name}</span>
-            ${legendItemHtml}
-          </div>
-        `;
+          html += `
+            <div class="global-legend-item">
+              <span class="global-legend-title">${item.name}</span>
+              ${legendItemHtml}
+            </div>
+          `;
+        });
       });
     });
 
@@ -678,7 +700,11 @@
 
   function renderLayersTree() {
     let total = layerStore.independent.length;
-    Object.values(layerStore).forEach(g => total += g.length);
+    Object.values(layerStore).forEach(g => {
+      g.forEach(it => {
+        total += it.isParent ? it.sublayers.length : 1;
+      });
+    });
     layerCountEl.textContent = `${total} camada${total !== 1 ? 's' : ''} carregada${total !== 1 ? 's' : ''}`;
 
     layersTreeEl.innerHTML = '';
@@ -733,12 +759,14 @@
       const groupEl = document.createElement('div');
       groupEl.className = 'layer-group open';
 
+      const count = items.reduce((acc, it) => acc + (it.isParent ? it.sublayers.length : 1), 0);
+
       const head = document.createElement('div');
       head.className = 'layer-group-head';
       head.innerHTML = `
         <span class="layer-group-caret">▶</span>
         <span class="layer-group-title">${label}</span>
-        <span class="layer-group-count">${items.length}</span>`;
+        <span class="layer-group-count">${count}</span>`;
       head.addEventListener('click', () => groupEl.classList.toggle('open'));
       groupEl.appendChild(head);
 
@@ -746,46 +774,156 @@
       wrap.className = 'layer-group-items';
 
       items.forEach(item => {
-        const row = document.createElement('div');
-        row.className = 'layer-item';
+        if (item.isParent) {
+          const row = document.createElement('div');
+          row.className = 'layer-item layer-parent-card';
 
-        row.innerHTML = `
-          <div class="layer-item-main">
-            <input type="checkbox" class="layer-checkbox" ${item.visible ? 'checked' : ''} />
-            <span class="layer-color-dot" style="background:${item.color};box-shadow:0 0 5px ${item.color}88"></span>
-            <span class="layer-name" title="${item.name}">${item.name}</span>
-            <span class="layer-actions">
-              <button class="layer-icon-btn zoom-to" title="Centralizar">⌖</button>
-              <button class="layer-icon-btn remove" title="Remover">✕</button>
-            </span>
-          </div>
-          <div class="layer-item-opacity">
-            <span class="layer-opacity-label">Opacidade: ${Math.round(item.opacity * 100)}%</span>
-            <input type="range" class="layer-opacity-slider" min="0" max="100" value="${Math.round(item.opacity * 100)}" />
-          </div>`;
+          const allChecked = item.sublayers.length > 0 && item.sublayers.every(s => s.visible);
+          const someChecked = item.sublayers.some(s => s.visible);
 
-        row.querySelector('.layer-checkbox').addEventListener('change', e => {
-          toggleLayerVisibility(key, item.id, e.target.checked);
-        });
-        row.querySelector('.layer-opacity-slider').addEventListener('input', e => {
-          const val = parseFloat(e.target.value) / 100;
-          row.querySelector('.layer-opacity-label').textContent = `Opacidade: ${e.target.value}%`;
-          setLayerOpacity(item, val);
-        });
-        row.querySelector('.zoom-to').addEventListener('click', () => {
-          try {
-            if (item.geometryType === 'raster') {
-              const bounds = L.latLngBounds([TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT]);
-              map.fitBounds(bounds, { padding: [40, 40] });
-            } else {
-              const b = item.leafletLayer.getBounds();
-              if (b && b.isValid()) map.fitBounds(b, { padding: [40, 40] });
-            }
-          } catch (_) {}
-        });
-        row.querySelector('.remove').addEventListener('click', () => removeLayerById(key, item.id));
+          row.innerHTML = `
+            <div class="layer-item-main">
+              <button class="layer-sub-caret ${item.expanded ? 'open' : ''}" title="Expandir/Recolher subcamadas">
+                ${item.expanded ? '▼' : '▶'}
+              </button>
+              <input type="checkbox" class="layer-checkbox master-checkbox" ${allChecked ? 'checked' : ''} />
+              <span class="layer-color-dot" style="background: linear-gradient(135deg, #FE3A00, #FC60A9, #00A877, #788FBB); box-shadow: 0 0 6px rgba(254,157,39,0.6)"></span>
+              <span class="layer-name" style="font-weight: 600; cursor: pointer;" title="${item.name}">${item.name}</span>
+              <span class="layer-sub-count">(${item.sublayers.length})</span>
+              <span class="layer-actions">
+                <button class="layer-icon-btn zoom-to" title="Centralizar todos os módulos">⌖</button>
+              </span>
+            </div>
+            <div class="layer-item-opacity">
+              <span class="layer-opacity-label">Opacidade: ${Math.round(item.opacity * 100)}%</span>
+              <input type="range" class="layer-opacity-slider" min="0" max="100" value="${Math.round(item.opacity * 100)}" />
+            </div>
+            <div class="layer-sublayers-list" style="display: ${item.expanded ? 'block' : 'none'};"></div>`;
 
-        wrap.appendChild(row);
+          const masterCheckbox = row.querySelector('.master-checkbox');
+          if (!allChecked && someChecked) {
+            masterCheckbox.indeterminate = true;
+          }
+
+          const toggleExpand = () => {
+            item.expanded = !item.expanded;
+            renderLayersTree();
+          };
+          row.querySelector('.layer-sub-caret').addEventListener('click', toggleExpand);
+          row.querySelector('.layer-name').addEventListener('click', toggleExpand);
+
+          masterCheckbox.addEventListener('change', e => {
+            const targetVisible = e.target.checked;
+            item.visible = targetVisible;
+            item.sublayers.forEach(sub => {
+              toggleSublayerVisibility(item, sub, targetVisible);
+            });
+            renderLayersTree();
+          });
+
+          row.querySelector('.layer-opacity-slider').addEventListener('input', e => {
+            const val = parseFloat(e.target.value) / 100;
+            item.opacity = val;
+            row.querySelector('.layer-opacity-label').textContent = `Opacidade: ${e.target.value}%`;
+            item.sublayers.forEach(sub => {
+              setLayerOpacity(sub, val);
+            });
+          });
+
+          row.querySelector('.zoom-to').addEventListener('click', () => {
+            try {
+              const bounds = L.latLngBounds();
+              item.sublayers.forEach(sub => {
+                const b = sub.leafletLayer.getBounds();
+                if (b && b.isValid()) bounds.extend(b);
+              });
+              if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
+            } catch (_) {}
+          });
+
+          const subListEl = row.querySelector('.layer-sublayers-list');
+          item.sublayers.forEach(sub => {
+            const subRow = document.createElement('div');
+            subRow.className = 'layer-item layer-sub-item';
+
+            subRow.innerHTML = `
+              <div class="layer-item-main">
+                <input type="checkbox" class="layer-checkbox sub-checkbox" ${sub.visible ? 'checked' : ''} />
+                <span class="layer-color-dot" style="background:${sub.color}; box-shadow:0 0 5px ${sub.color}88"></span>
+                <span class="layer-name" title="${sub.name}">${sub.name}</span>
+                <span class="layer-actions">
+                  <button class="layer-icon-btn zoom-to" title="Centralizar">⌖</button>
+                </span>
+              </div>
+              <div class="layer-item-opacity">
+                <span class="layer-opacity-label">Opacidade: ${Math.round(sub.opacity * 100)}%</span>
+                <input type="range" class="layer-opacity-slider" min="0" max="100" value="${Math.round(sub.opacity * 100)}" />
+              </div>`;
+
+            subRow.querySelector('.sub-checkbox').addEventListener('change', e => {
+              toggleSublayerVisibility(item, sub, e.target.checked);
+              renderLayersTree();
+            });
+
+            subRow.querySelector('.layer-opacity-slider').addEventListener('input', e => {
+              const val = parseFloat(e.target.value) / 100;
+              subRow.querySelector('.layer-opacity-label').textContent = `Opacidade: ${e.target.value}%`;
+              setLayerOpacity(sub, val);
+            });
+
+            subRow.querySelector('.zoom-to').addEventListener('click', () => {
+              try {
+                const b = sub.leafletLayer.getBounds();
+                if (b && b.isValid()) map.fitBounds(b, { padding: [40, 40] });
+              } catch (_) {}
+            });
+
+            subListEl.appendChild(subRow);
+          });
+
+          wrap.appendChild(row);
+        } else {
+          const row = document.createElement('div');
+          row.className = 'layer-item';
+
+          row.innerHTML = `
+            <div class="layer-item-main">
+              <input type="checkbox" class="layer-checkbox" ${item.visible ? 'checked' : ''} />
+              <span class="layer-color-dot" style="background:${item.color};box-shadow:0 0 5px ${item.color}88"></span>
+              <span class="layer-name" title="${item.name}">${item.name}</span>
+              <span class="layer-actions">
+                <button class="layer-icon-btn zoom-to" title="Centralizar">⌖</button>
+                <button class="layer-icon-btn remove" title="Remover">✕</button>
+              </span>
+            </div>
+            <div class="layer-item-opacity">
+              <span class="layer-opacity-label">Opacidade: ${Math.round(item.opacity * 100)}%</span>
+              <input type="range" class="layer-opacity-slider" min="0" max="100" value="${Math.round(item.opacity * 100)}" />
+            </div>`;
+
+          row.querySelector('.layer-checkbox').addEventListener('change', e => {
+            toggleLayerVisibility(key, item.id, e.target.checked);
+          });
+          row.querySelector('.layer-opacity-slider').addEventListener('input', e => {
+            const val = parseFloat(e.target.value) / 100;
+            row.querySelector('.layer-opacity-label').textContent = `Opacidade: ${e.target.value}%`;
+            setLayerOpacity(item, val);
+          });
+          row.querySelector('.zoom-to').addEventListener('click', () => {
+            try {
+              if (item.geometryType === 'raster') {
+                const bounds = L.latLngBounds([TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT]);
+                map.fitBounds(bounds, { padding: [40, 40] });
+              } else {
+                const b = item.leafletLayer.getBounds();
+                if (b && b.isValid()) map.fitBounds(b, { padding: [40, 40] });
+              }
+            } catch (_) {}
+          });
+          row.querySelector('.remove').addEventListener('click', () => removeLayerById(key, item.id));
+
+          wrap.appendChild(row);
+        }
       });
 
       groupEl.appendChild(wrap);
@@ -1074,7 +1212,7 @@
       }
     }
 
-    // 4. Carregar novos limites dos módulos por grupo (1 a 11) — Todos iniciam ligados
+    // 4. Carregar novos limites dos módulos agrupados em subcamadas sob "Módulos e grupos" (iniciam desligados)
     try {
       let dataMod = null;
       if (typeof window !== 'undefined' && window.MODULOS_RIVIERA_DATA) {
@@ -1097,6 +1235,7 @@
         }
       }
 
+      const sublayerItems = [];
       const sortedGroupNums = Object.keys(groupsMap).map(Number).sort((a, b) => a - b);
       for (const g of sortedGroupNums) {
         const gFeatures = groupsMap[g];
@@ -1105,18 +1244,20 @@
         const modNames = gFeatures.map(f => f.properties && f.properties.modulo).filter(Boolean).join(', ');
         const layerName = `Grupo ${g} (${modNames})`;
 
+        // Cor do grupo vinda da propriedade cor_grupo no GeoJSON
+        const groupColor = (gFeatures[0].properties && gFeatures[0].properties.cor_grupo) || '#FE9D27';
+
         const groupGeoJson = {
           type: 'FeatureCollection',
           features: gFeatures,
         };
 
-        const lyr = addGeoJsonToMap(layerName, groupGeoJson, 'limites', true, {
-          color: '#FE9D27',
-          weight: 1.74,
+        const subItem = createGeoJsonLayerItem(layerName, groupGeoJson, false, {
+          color: groupColor,
+          fillColor: groupColor,
+          fillOpacity: 0.25,
+          weight: 2,
           opacity: 1,
-          fill: true,
-          fillColor: '#FE9D27',
-          fillOpacity: 0,
           lineCap: 'square',
           lineJoin: 'bevel',
           labelField: 'modulo',
@@ -1133,9 +1274,21 @@
           },
         });
 
-        if (lyr) {
-          lyr.bringToBack();
-        }
+        sublayerItems.push(subItem);
+      }
+
+      // Adiciona a camada pai com as 11 subcamadas na categoria 'limites'
+      if (sublayerItems.length > 0) {
+        layerStore.limites.push({
+          id: 'layer-modulos-parent',
+          name: 'Módulos e grupos',
+          color: '#FE9D27',
+          isParent: true,
+          expanded: false,
+          visible: false,
+          opacity: 1.0,
+          sublayers: sublayerItems,
+        });
       }
     } catch (err) {
       console.warn('[Geoportal] Falha ao carregar Limites dos Módulos:', err.message);
