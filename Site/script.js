@@ -256,10 +256,21 @@
      10.1 POLEYLABEL — Ponto mais interno do polígono (Pole of Inaccessibility)
   ---------------------------------------------------------------- */
   function polylabel(polygon, precision) {
-    precision = precision || 0.00001;
+    precision = precision || 0.0002;
+
+    const simplifiedPolygon = (polygon || []).map(ring => {
+      if (!ring || ring.length <= 60) return ring;
+      const step = Math.ceil(ring.length / 60);
+      const res = [];
+      for (let i = 0; i < ring.length - 1; i += step) {
+        res.push(ring[i]);
+      }
+      res.push(ring[ring.length - 1]);
+      return res;
+    });
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const ring = polygon && polygon[0];
+    const ring = simplifiedPolygon && simplifiedPolygon[0];
     if (!ring || !ring.length) return [0, 0];
 
     for (let i = 0; i < ring.length; i++) {
@@ -281,7 +292,7 @@
       this.x = x;
       this.y = y;
       this.h = h;
-      this.d = pointToPolygonDist(x, y, polygon);
+      this.d = pointToPolygonDist(x, y, simplifiedPolygon);
       this.max = this.d + this.h * Math.SQRT2;
     }
 
@@ -293,11 +304,13 @@
       }
     }
 
-    let bestCell = getCentroidCell(polygon);
+    let bestCell = getCentroidCell(simplifiedPolygon);
     const bboxCell = new Cell(minX + width / 2, minY + height / 2, 0);
     if (bboxCell.d > bestCell.d) bestCell = bboxCell;
 
-    while (cellQueue.length) {
+    let iterCount = 0;
+    while (cellQueue.length && iterCount < 150) {
+      iterCount++;
       let bestIdx = 0;
       let highestMax = cellQueue[0].max;
       for (let i = 1; i < cellQueue.length; i++) {
@@ -444,7 +457,7 @@
           const coords = feature.geometry.type === 'Polygon'
             ? feature.geometry.coordinates
             : feature.geometry.coordinates[0];
-          const pole = polylabel(coords, 0.00001);
+          const pole = polylabel(coords, 0.0002);
           if (pole && pole.length >= 2) {
             layer.getCenter = function() {
               return L.latLng(pole[1], pole[0]);
@@ -1218,12 +1231,13 @@
       if (typeof window !== 'undefined' && window.MODULOS_RIVIERA_DATA) {
         dataMod = window.MODULOS_RIVIERA_DATA;
       } else {
-        const respMod = await fetch(`../GeoJSON/modulos_riviera_limites_grupos_wgs84.geojson?v=${Date.now()}`);
+        const respMod = await fetch(`../GeoJSON/Divisoes_Riviera_modulos_completos_wgs84.geojson?v=${Date.now()}`);
         if (!respMod.ok) throw new Error(`HTTP ${respMod.status}`);
         dataMod = await respMod.json();
       }
 
-      const features = (dataMod && dataMod.features) || [];
+      const rawFeatures = (dataMod && dataMod.features) || [];
+      const features = rawFeatures.filter(f => f.properties && f.properties.grupo != null && f.properties.modulo);
 
       // Agrupar feições por grupo (1 a 11)
       const groupsMap = {};
