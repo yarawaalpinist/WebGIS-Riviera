@@ -1183,11 +1183,92 @@
     let combinedBounds = L.latLngBounds();
     let loadedActive = 0;
 
-    // 1. Carregar overlays de imagens locais aguardando o processamento
-    await addRasterOverlay('Mapa de Temperatura Superficial - Verão',   './lst_verao.png',   'raster', false, 'verao');
-    await addRasterOverlay('Mapa de Temperatura Superficial - Outono',  './lst_inverno.png', 'raster', false, 'outono');
-    await addRasterOverlay('Carbono Equivalente',                       './c02eq.png',       'raster', false, 'c02eq');
-    await addRasterOverlay('Modelo Digital de Elevação (m)',            './Modelo Digital de Elevação.png', 'raster', false, 'mde');
+    // 1. Carregar limites dos mÃ³dulos agrupados em subcamadas sob "Módulos e grupos" (iniciam desligados)
+    try {
+      let dataMod = null;
+      if (typeof window !== 'undefined' && (window.DIVISOES_RIVIERA_DATA || window.MODULOS_RIVIERA_DATA)) {
+        dataMod = window.DIVISOES_RIVIERA_DATA || window.MODULOS_RIVIERA_DATA;
+      } else {
+        const respMod = await fetch(`../GeoJSON/Divisoes_Riviera_modulos_completos_wgs84.geojson?v=${Date.now()}`);
+        if (respMod.ok) {
+          dataMod = await respMod.json();
+        }
+      }
+
+      if (dataMod && dataMod.features) {
+        const rawFeatures = dataMod.features || [];
+        const features = rawFeatures.filter(f => f.properties && f.properties.grupo != null && f.properties.modulo);
+
+        // Agrupar feiÃ§Ãµes por grupo (1 a 11)
+        const groupsMap = {};
+        for (const f of features) {
+          const g = f.properties && f.properties.grupo;
+          if (g != null) {
+            if (!groupsMap[g]) groupsMap[g] = [];
+            groupsMap[g].push(f);
+          }
+        }
+
+        const sublayerItems = [];
+        const sortedGroupNums = Object.keys(groupsMap).map(Number).sort((a, b) => a - b);
+        for (const g of sortedGroupNums) {
+          const gFeatures = groupsMap[g];
+          // Ordenar mÃ³dulos por nÃºmero (ex: M1, M22, M26)
+          gFeatures.sort((a, b) => ((a.properties && a.properties.num) || 0) - ((b.properties && b.properties.num) || 0));
+          const modNames = gFeatures.map(f => f.properties && f.properties.modulo).filter(Boolean).join(', ');
+          const layerName = `Grupo ${g} (${modNames})`;
+
+          // Cor do grupo vinda da propriedade cor_grupo no GeoJSON
+          const groupColor = (gFeatures[0].properties && gFeatures[0].properties.cor_grupo) || '#FE9D27';
+
+          const groupGeoJson = {
+            type: 'FeatureCollection',
+            features: gFeatures,
+          };
+
+          const subItem = createGeoJsonLayerItem(layerName, groupGeoJson, false, {
+            color: groupColor,
+            fillColor: groupColor,
+            fillOpacity: 0.25,
+            weight: 2,
+            opacity: 1,
+            lineCap: 'square',
+            lineJoin: 'bevel',
+            labelField: 'modulo',
+            labelClass: 'modulo-label-tooltip',
+            usePoleOfInaccessibility: true,
+            bringToBack: true,
+            customPopup: (feature) => {
+              const p = feature.properties || {};
+              const areaFormatted = Number(p.area_ha != null ? p.area_ha : 0).toLocaleString('pt-BR', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              });
+              return `Módulo ${p.modulo || ''} / Grupo ${p.grupo != null ? p.grupo : ''} / ${areaFormatted} ha`;
+            },
+          });
+
+          sublayerItems.push(subItem);
+        }
+
+        // Adiciona a camada pai com as 11 subcamadas na categoria 'limites'
+        if (sublayerItems.length > 0) {
+          layerStore.limites.push({
+            id: 'layer-modulos-parent',
+            name: 'Módulos e grupos',
+            color: '#FE9D27',
+            isParent: true,
+            expanded: false,
+            visible: false,
+            opacity: 1.0,
+            sublayers: sublayerItems,
+          });
+          renderLayersTree();
+        }
+      }
+    } catch (err) {
+      console.warn('[Geoportal] Falha ao carregar Limites dos Módulos:', err.message);
+    }
 
     // 2. Carregar camada de Pontos de Interesse (Independente)
     try {
@@ -1200,7 +1281,13 @@
       console.warn('[Geoportal] Falha ao carregar Pontos de Interesse:', err.message);
     }
 
-    // 3. Carregar camadas vetoriais
+    // 3. Carregar overlays de imagens locais
+    await addRasterOverlay('Mapa de Temperatura Superficial - VerÃ£o',   './lst_verao.png',   'raster', false, 'verao');
+    await addRasterOverlay('Mapa de Temperatura Superficial - Outono',  './lst_inverno.png', 'raster', false, 'outono');
+    await addRasterOverlay('Carbono Equivalente',                       './c02eq.png',       'raster', false, 'c02eq');
+    await addRasterOverlay('Modelo Digital de ElevaÃ§Ã£o (m)',            './Modelo Digital de ElevaÃ§Ã£o.png', 'raster', false, 'mde');
+
+    // 4. Carregar camadas vetoriais
     for (const l of AUTO_LAYERS) {
       if (l.skip || !l.file) continue;
       try {
@@ -1221,93 +1308,9 @@
           } catch (_) {}
         }
       } catch (err) {
-        console.warn(`[Geoportal] Camada "${l.name}" não carregada:`, err.message);
+        console.warn(`[Geoportal] Camada "${l.name}" nÃ£o carregada:`, err.message);
       }
     }
-
-    // 4. Carregar novos limites dos módulos agrupados em subcamadas sob "Módulos e grupos" (iniciam desligados)
-    try {
-      let dataMod = null;
-      if (typeof window !== 'undefined' && window.MODULOS_RIVIERA_DATA) {
-        dataMod = window.MODULOS_RIVIERA_DATA;
-      } else {
-        const respMod = await fetch(`../GeoJSON/Divisoes_Riviera_modulos_completos_wgs84.geojson?v=${Date.now()}`);
-        if (!respMod.ok) throw new Error(`HTTP ${respMod.status}`);
-        dataMod = await respMod.json();
-      }
-
-      const rawFeatures = (dataMod && dataMod.features) || [];
-      const features = rawFeatures.filter(f => f.properties && f.properties.grupo != null && f.properties.modulo);
-
-      // Agrupar feições por grupo (1 a 11)
-      const groupsMap = {};
-      for (const f of features) {
-        const g = f.properties && f.properties.grupo;
-        if (g != null) {
-          if (!groupsMap[g]) groupsMap[g] = [];
-          groupsMap[g].push(f);
-        }
-      }
-
-      const sublayerItems = [];
-      const sortedGroupNums = Object.keys(groupsMap).map(Number).sort((a, b) => a - b);
-      for (const g of sortedGroupNums) {
-        const gFeatures = groupsMap[g];
-        // Ordenar módulos por número (ex: M1, M22, M26)
-        gFeatures.sort((a, b) => ((a.properties && a.properties.num) || 0) - ((b.properties && b.properties.num) || 0));
-        const modNames = gFeatures.map(f => f.properties && f.properties.modulo).filter(Boolean).join(', ');
-        const layerName = `Grupo ${g} (${modNames})`;
-
-        // Cor do grupo vinda da propriedade cor_grupo no GeoJSON
-        const groupColor = (gFeatures[0].properties && gFeatures[0].properties.cor_grupo) || '#FE9D27';
-
-        const groupGeoJson = {
-          type: 'FeatureCollection',
-          features: gFeatures,
-        };
-
-        const subItem = createGeoJsonLayerItem(layerName, groupGeoJson, false, {
-          color: groupColor,
-          fillColor: groupColor,
-          fillOpacity: 0.25,
-          weight: 2,
-          opacity: 1,
-          lineCap: 'square',
-          lineJoin: 'bevel',
-          labelField: 'modulo',
-          labelClass: 'modulo-label-tooltip',
-          usePoleOfInaccessibility: true,
-          bringToBack: true,
-          customPopup: (feature) => {
-            const p = feature.properties || {};
-            const areaFormatted = Number(p.area_ha != null ? p.area_ha : 0).toLocaleString('pt-BR', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            });
-            return `Módulo ${p.modulo || ''} / Grupo ${p.grupo != null ? p.grupo : ''} / ${areaFormatted} ha`;
-          },
-        });
-
-        sublayerItems.push(subItem);
-      }
-
-      // Adiciona a camada pai com as 11 subcamadas na categoria 'limites'
-      if (sublayerItems.length > 0) {
-        layerStore.limites.push({
-          id: 'layer-modulos-parent',
-          name: 'Módulos e grupos',
-          color: '#FE9D27',
-          isParent: true,
-          expanded: false,
-          visible: false,
-          opacity: 1.0,
-          sublayers: sublayerItems,
-        });
-      }
-    } catch (err) {
-      console.warn('[Geoportal] Falha ao carregar Limites dos Módulos:', err.message);
-    }
-
     if (loadedActive > 0 && combinedBounds.isValid()) {
       map.fitBounds(combinedBounds, { padding: [40, 40] });
     } else {
