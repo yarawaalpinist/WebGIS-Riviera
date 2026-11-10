@@ -454,19 +454,25 @@
         if (html) layer.bindPopup(html, { maxWidth: 320, maxHeight: 300 });
 
         if (customStyle && customStyle.usePoleOfInaccessibility && feature.geometry && (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon')) {
-          const coords = feature.geometry.type === 'Polygon'
-            ? feature.geometry.coordinates
-            : feature.geometry.coordinates[0];
-          const pole = polylabel(coords, 0.0002);
-          if (pole && pole.length >= 2) {
-            layer.getCenter = function() {
-              return L.latLng(pole[1], pole[0]);
-            };
-          }
+          try {
+            const coords = feature.geometry.type === 'Polygon'
+              ? feature.geometry.coordinates
+              : (feature.geometry.coordinates && feature.geometry.coordinates[0]);
+            if (coords && coords.length && coords[0] && coords[0].length >= 3) {
+              const pole = polylabel(coords, 0.0002);
+              if (pole && pole.length >= 2 && !isNaN(pole[0]) && !isNaN(pole[1])) {
+                layer.getCenter = function() {
+                  return L.latLng(pole[1], pole[0]);
+                };
+              }
+            }
+          } catch (_) {}
         }
 
-        if (customStyle && customStyle.labelField) {
-          const val = feature.properties && feature.properties[customStyle.labelField];
+        if (customStyle && (customStyle.labelField || customStyle.labelFn)) {
+          const val = customStyle.labelFn
+            ? customStyle.labelFn(feature)
+            : (feature.properties && feature.properties[customStyle.labelField]);
           if (val) {
             layer.bindTooltip(String(val), {
               permanent: true,
@@ -800,11 +806,11 @@
                 ${item.expanded ? '▼' : '▶'}
               </button>
               <input type="checkbox" class="layer-checkbox master-checkbox" ${allChecked ? 'checked' : ''} />
-              <span class="layer-color-dot" style="background: linear-gradient(135deg, #FE3A00, #FC60A9, #00A877, #788FBB); box-shadow: 0 0 6px rgba(254,157,39,0.6)"></span>
+              <span class="layer-color-dot" style="background: ${item.dotBackground || 'linear-gradient(135deg, #FE3A00, #FC60A9, #00A877, #788FBB)'}; box-shadow: ${item.dotShadow || '0 0 6px rgba(254,157,39,0.6)'}"></span>
               <span class="layer-name" style="font-weight: 600; cursor: pointer;" title="${item.name}">${item.name}</span>
               <span class="layer-sub-count">(${item.sublayers.length})</span>
               <span class="layer-actions">
-                <button class="layer-icon-btn zoom-to" title="Centralizar todos os módulos">⌖</button>
+                <button class="layer-icon-btn zoom-to" title="Centralizar camada">⌖</button>
               </span>
             </div>
             <div class="layer-item-opacity">
@@ -1268,6 +1274,157 @@
       }
     } catch (err) {
       console.warn('[Geoportal] Falha ao carregar Limites dos Módulos:', err.message);
+    }
+
+    // 1.5 Carregar Módulos por prioridade sob "Possíveis intervenções de SbN" (olivia)
+    try {
+      let dataPrio = null;
+      if (typeof window !== 'undefined' && window.DIVISOES_RIVIERA_PRIORIDADE_DATA) {
+        dataPrio = window.DIVISOES_RIVIERA_PRIORIDADE_DATA;
+      } else {
+        const respPrio = await fetch(`../GeoJSON/Divisoes_Riviera_modulos_prioridade_wgs84.geojson?v=${Date.now()}`);
+        if (respPrio.ok) {
+          dataPrio = await respPrio.json();
+        }
+      }
+
+      if (dataPrio && dataPrio.features) {
+        const rawFeatures = dataPrio.features || [];
+
+        // Agrupar por ordem_prioridade (1 = Alta, 2 = Média, 3 = Baixa, 4 = Sem dados)
+        const PRIO_INFO = {
+          1: { label: 'Alta',      color: '#D62728' },
+          2: { label: 'Média',     color: '#F5A623' },
+          3: { label: 'Baixa',     color: '#2E9E4F' },
+          4: { label: 'Sem dados', color: '#D3D3D3' },
+        };
+
+        const prioMap = { 1: [], 2: [], 3: [], 4: [] };
+        for (const f of rawFeatures) {
+          const ord = (f.properties && f.properties.ordem_prioridade) ? Number(f.properties.ordem_prioridade) : 4;
+          const targetKey = prioMap[ord] ? ord : 4;
+          prioMap[targetKey].push(f);
+        }
+
+        const prioSublayerItems = [];
+        for (const ord of [1, 2, 3, 4]) {
+          const pFeatures = prioMap[ord];
+          if (!pFeatures || !pFeatures.length) continue;
+
+          // Ordenar módulos por número ou nome
+          pFeatures.sort((a, b) => {
+            const na = (a.properties && a.properties.num != null && a.properties.num !== '') ? Number(a.properties.num) : 999;
+            const nb = (b.properties && b.properties.num != null && b.properties.num !== '') ? Number(b.properties.num) : 999;
+            if (na !== nb) return na - nb;
+            const da = (a.properties && (a.properties.Divisão || a.properties['DivisÃ£o'])) || '';
+            const db = (b.properties && (b.properties.Divisão || b.properties['DivisÃ£o'])) || '';
+            return da.localeCompare(db);
+          });
+
+          const pInfo = PRIO_INFO[ord];
+          const prioColor = (pFeatures[0].properties && pFeatures[0].properties.cor_prioridade) || pInfo.color;
+
+          // Nomes resumidos dos módulos
+          const modNamesList = [];
+          pFeatures.forEach(f => {
+            const p = f.properties || {};
+            if (p.modulo) {
+              modNamesList.push(p.modulo);
+            } else {
+              const d = p.Divisão || p['DivisÃ£o'] || '';
+              if (d.toLowerCase().includes('comercial')) {
+                if (!modNamesList.includes('Centro Comercial')) modNamesList.push('Centro Comercial');
+              } else if (d.toLowerCase().includes('institucional')) {
+                if (!modNamesList.includes('Área Inst.')) modNamesList.push('Área Inst.');
+              } else if (d && !modNamesList.includes(d)) {
+                modNamesList.push(d);
+              }
+            }
+          });
+
+          const modSummary = modNamesList.join(', ');
+          const layerName = `${ord} - ${pInfo.label} (${modSummary})`;
+
+          const prioGeoJson = {
+            type: 'FeatureCollection',
+            features: pFeatures,
+          };
+
+          const subItem = createGeoJsonLayerItem(layerName, prioGeoJson, false, {
+            color: prioColor,
+            fillColor: prioColor,
+            fillOpacity: 0.35,
+            weight: 2,
+            opacity: 1,
+            lineCap: 'square',
+            lineJoin: 'bevel',
+            labelClass: 'modulo-label-tooltip',
+            usePoleOfInaccessibility: true,
+            bringToBack: true,
+            labelFn: (f) => {
+              const p = f.properties || {};
+              if (p.modulo) return p.modulo;
+              const d = p.Divisão || p['DivisÃ£o'] || '';
+              if (d.toLowerCase().includes('comercial')) return 'CC';
+              if (d.toLowerCase().includes('institucional')) return 'Área Inst.';
+              return d;
+            },
+            customPopup: (feature) => {
+              const p = feature.properties || {};
+              const nameStr = p.modulo ? `Módulo ${p.modulo}` : (p.Divisão || p['DivisÃ£o'] || 'Área');
+              const prioLabels = { 1: 'Alta', 2: 'Média', 3: 'Baixa', 4: 'Sem dados' };
+              const prioStr = prioLabels[p.ordem_prioridade] || p.prio_plantio || 'Sem dados';
+              const cor = p.cor_prioridade || prioColor;
+              const areaFormatted = Number(p.area_ha != null ? p.area_ha : 0).toLocaleString('pt-BR', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              });
+              let extra = '';
+              if (p.flor_pct != null && p.flor_pct !== '') {
+                const florVal = Number(p.flor_pct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+                extra += `<div><span style="opacity:0.7">Cobertura Vegetal:</span> <b>${florVal}%</b></div>`;
+              }
+              if (p.t_med != null && p.t_med !== '') {
+                const tVal = Number(p.t_med).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+                extra += `<div><span style="opacity:0.7">Temp. Superficial Média:</span> <b>${tVal} °C</b></div>`;
+              }
+              return `
+                <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:#fff;">
+                  ${nameStr}
+                </div>
+                <div style="margin-bottom:4px;">
+                  <span style="opacity:0.7">Prioridade:</span>
+                  <span style="background:${cor}; color:#fff; font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px; margin-left:4px;">
+                    ${prioStr}
+                  </span>
+                </div>
+                <div style="margin-bottom:4px;"><span style="opacity:0.7">Área:</span> <b>${areaFormatted} ha</b></div>
+                ${extra}
+              `;
+            },
+          });
+
+          prioSublayerItems.push(subItem);
+        }
+
+        if (prioSublayerItems.length > 0) {
+          layerStore.olivia.push({
+            id: 'layer-modulos-prioridade-parent',
+            name: 'Módulos por prioridade',
+            color: '#D62728',
+            dotBackground: 'linear-gradient(135deg, #D62728, #F5A623, #2E9E4F, #D3D3D3)',
+            dotShadow: '0 0 6px rgba(214,39,40,0.6)',
+            isParent: true,
+            expanded: false,
+            visible: false,
+            opacity: 1.0,
+            sublayers: prioSublayerItems,
+          });
+          renderLayersTree();
+        }
+      }
+    } catch (err) {
+      console.warn('[Geoportal] Falha ao carregar Módulos por prioridade:', err.message);
     }
 
     // 2. Carregar camada de Pontos de Interesse (Independente)
